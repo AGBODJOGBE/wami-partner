@@ -1,0 +1,171 @@
+# WAMI — applications partenaires
+
+Dépôt des deux applications partenaires de WAMI et de leur socle commun.
+L'application client vit dans **son propre dépôt** et n'est pas concernée ici.
+
+| Dossier | Contenu | Accent |
+|---|---|---|
+| `apps/wami_pro` | **WAMI Pro** — chauffeurs (moto, auto) et livreurs | bleu |
+| `apps/wami_business` | **WAMI Business** — restaurants, hôtels, chambres, propriétaires, compagnies de bus | turquoise |
+| `packages/wami_core` | Socle partagé : design system, réseau, erreurs, `Result`, widgets | — |
+
+> ⚠️ **Code non compilé.** Il a été écrit sans SDK Flutter disponible ; seules la syntaxe,
+> la résolution des imports et des symboles ont été vérifiées par script.
+> Commencez par `flutter analyze` (voir plus bas) et corrigez ce qu'il signale.
+
+---
+
+## Trois règles pour durer
+
+Vous êtes seul sur le projet : ces règles évitent qu'un changement d'une app casse l'autre
+et que le socle devienne un fourre-tout.
+
+1. **Le socle ne contient aucune logique métier.**
+   `wami_core` = design system, client HTTP, erreurs, `Result`, formatage, widgets génériques.
+   Une règle comme « 2 minutes d'attente gratuites » ou « pas de surbooking » vit dans
+   le `domain/` de l'app concernée, jamais dans le socle.
+   Test simple : si seule une app s'en sert, ça ne va pas dans `wami_core`.
+
+2. **Le socle est versionné par tags git.**
+   À chaque changement notable de `wami_core` : mettre à jour `version` dans son `pubspec.yaml`
+   et `CHANGELOG.md`, puis poser un tag `core-vX.Y.Z` (ex. `git tag core-v0.2.0`).
+   Les apps de ce dépôt utilisent le socle par chemin (`path:`) : elles suivent toujours la dernière version.
+   Si un jour l'app client veut le socle, elle le référence **par tag**, sans être obligée de suivre :
+   ```yaml
+   wami_core:
+     git:
+       url: <url-de-ce-depot>
+       path: packages/wami_core
+       ref: core-v0.1.0
+   ```
+
+3. **Chaque app reste indépendante.**
+   Son propre `pubspec.yaml`, ses identifiants de store, sa version, sa publication.
+   Une feature n'importe jamais une autre feature ni la couche `app/` :
+   les liens passent par des callbacks injectés par le routeur (`onLogout`, `onActivated`…).
+
+---
+
+## Architecture (identique dans les deux apps)
+
+```
+lib/
+├── main.dart                 lecture de la config, injection, runApp
+├── app.dart                  blocs globaux + MaterialApp.router
+├── app/                      racine de composition (seule couche qui connaît toutes les features)
+│   ├── di/injection.dart     get_it : sources → repositories → cas d'usage → cubits
+│   ├── router/               go_router : redirections de session, onglets, pages plein écran
+│   └── session/              SessionCubit : déconnecté / inscription / actif
+├── shared/                   routes, accent, petits utilitaires sans dépendance de feature
+└── features/<feature>/
+    ├── domain/               entités, contrat du repository, cas d'usage (règles métier)
+    ├── data/                 sources Api + Fake, implémentation du repository
+    └── presentation/         cubits/blocs, pages, widgets
+```
+
+- Les erreurs ne traversent pas les couches sous forme d'exception : la source lève, le repository
+  convertit avec `guard()` en `Result<T>` (`Ok` / `Err(Failure)`), l'UI affiche `failure.message`.
+- Chaque source de données existe en deux versions : `…ApiDataSource` (HTTP, endpoints **à valider**)
+  et `…FakeDataSource` (démo). Le choix se fait dans `injection.dart` selon `WAMI_FAKE_BACKEND`.
+
+### WAMI Pro
+
+Onglets **Missions · Gains · Compte**. Inscription (métier, véhicule, numéro, code SMS, pièces,
+vérification), mise en ligne, offres avec compte à rebours, course (code client, attente facturée,
+pause), livraison (check-list, photo, code de remise, espèces ou MoMo), reçu, gains, portefeuille,
+performance, conformité des documents.
+
+### WAMI Business
+
+Onglets **Tableau · Activité · Offre · Finances · Compte**. Un compte peut gérer plusieurs
+établissements ; « Activité » et « Offre » changent selon le métier de l'établissement courant :
+
+| Métier | Activité | Offre |
+|---|---|---|
+| Restaurant | Commandes : nouvelles → en cuisine → prêtes (accepter avec temps de préparation, refuser avec motif, +5 min, prête) | Menu : plats épuisés, pause des commandes |
+| Hôtel, chambres | Planning de la semaine, demandes à confirmer, arrivées, réservation au comptoir, check-in par code | Types de chambres : prix, chambres ouvertes |
+| Maisons, appartements | Demandes de visite : accepter, refuser, proposer un créneau | Biens (loué / disponible), plages de visite |
+| Compagnie de bus | Départs du jour (remplissage app / guichet, retard), plan des places partagé, embarquement par code | Lignes et prix |
+
+Plus : avis clients avec réponse, équipe (rôles propriétaire / gérant / employé), versements.
+
+---
+
+## Démarrer
+
+Prérequis : Flutter ≥ 3.27 (Dart ≥ 3.6).
+
+Les dossiers `android/` et `ios/` ne sont pas inclus. Générez-les une fois dans chaque app :
+
+```bash
+cd apps/wami_pro
+flutter create --org bj.wami --project-name wami_pro --platforms android,ios .
+cd ../wami_business
+flutter create --org bj.wami --project-name wami_business --platforms android,ios .
+```
+
+`flutter create .` n'écrase pas les fichiers existants (`lib/`, `pubspec.yaml`, `test/`) :
+il ajoute seulement ce qui manque.
+L'identifiant `bj.wami` est **à valider** (il devient l'ID de store, difficile à changer ensuite).
+
+Puis, dans chaque app :
+
+```bash
+flutter pub get
+flutter analyze
+flutter test
+flutter run                       # faux backend : démo complète sans serveur
+flutter run --dart-define=WAMI_FAKE_BACKEND=false --dart-define=WAMI_API_URL=https://api.exemple
+```
+
+### Parcours de démo (faux backend)
+
+| App | Code SMS | Autres codes |
+|---|---|---|
+| Pro | `1234` | code client / destinataire : `4821` |
+| Business | `1234` | check-in hôtel : `482193` · billet de bus : `300512` |
+
+Dans Business, les pièces envoyées sont validées 3 s plus tard ; le compte de démo gère un
+restaurant, un hôtel, une résidence et une compagnie de bus (touchez le nom en haut du Tableau pour changer).
+Noms, chiffres et numéros sont fictifs.
+
+---
+
+## Git
+
+```bash
+cd wami-partenaires            # ce dossier
+git init
+git add .
+git commit -m "Socle wami_core, WAMI Pro et WAMI Business (faux backend)"
+git tag core-v0.1.0
+git branch -M main
+git remote add origin <url>
+git push -u origin main --tags
+```
+
+Les `pubspec.lock` des apps sont versionnés, celui du socle non (voir `.gitignore`).
+
+---
+
+## À valider
+
+**Back-end**
+- Tous les endpoints des sources `…ApiDataSource` (chemins, champs JSON).
+- Stockage et rafraîchissement du jeton (flutter_secure_storage recommandé) dans `AuthInterceptor`.
+- Notifications temps réel (offres Pro, nouvelles commandes Business) : aujourd'hui en relecture
+  périodique ; à remplacer par push (FCM) ou WebSocket.
+
+**Règles métier** (valeurs actuelles dans le code, à confirmer)
+- Pro : 2 min d'attente gratuites puis 50 F/min, pause 25 F/min, commission 15 %, 15 s pour accepter une offre.
+- Business : commission 12 %, versement hebdomadaire, 3 min pour accepter une commande, préparation 5–90 min,
+  +5 min deux fois au plus, embarquement 45 min avant le départ, prix plancher chambre 2 000 F.
+- Pièces exigées à l'inscription selon le métier (RCCM, IFU…) et délai de vérification.
+- Paiement au comptoir (hôtel, guichet) : soumis ou non à la commission WAMI.
+
+**Produit**
+- Ajout de plats, photos, nouvelles chambres, nouvelles lignes : dans l'app ou sur un back-office web ?
+- Scan de QR code (check-in, billets) : paquet à ajouter (`mobile_scanner`).
+- Localisation française des composants Material (`flutter_localizations`) : le sélecteur de date est en anglais sans elle.
+- Carte réelle (Pro) : `RouteMapView` est un décor ; à remplacer par Google Maps ou Mapbox.
+- Identifiants de store et nom des apps.
