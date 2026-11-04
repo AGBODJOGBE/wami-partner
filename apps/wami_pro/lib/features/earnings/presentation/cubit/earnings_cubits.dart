@@ -65,3 +65,22 @@ class PerformanceCubit extends Cubit<DataState<Performance>> {
     emit(r.fold((f) => DataState(status: LoadStatus.failure, failure: f), (p) => DataState(status: LoadStatus.ready, data: p)));
   }
 }
+
+/// Envoi d'argent : `done` passe à vrai après un transfert réussi, `data` porte le reçu.
+class TransferCubit extends Cubit<DataState<TransferReceipt>> {
+  TransferCubit(this._get, this._transfer) : super(const DataState());
+  final GetPartnerWallet _get;
+  final TransferMoney _transfer;
+
+  Future<void> send({required String phone, required int amount, String? note}) async {
+    emit(const DataState(busy: true));
+    final wallet = await _get(const NoParams());
+    final w = wallet.valueOrNull;
+    if (w == null) {
+      emit(DataState(failure: wallet.fold((f) => f, (_) => null)));
+      return;
+    }
+    final r = await _transfer(TransferParams(wallet: w, phone: phone, amount: amount, note: note));
+    emit(r.fold((f) => DataState(failure: f), (receipt) => DataState(status: LoadStatus.ready, data: receipt, done: true)));
+  }
+}

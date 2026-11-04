@@ -58,7 +58,11 @@ class RegistrationForm extends Equatable {
     required this.color,
     required this.plate,
     required this.seats,
+    this.referralCode = '',
   });
+
+  /// Code de parrainage reçu d'un autre chauffeur (facultatif). Le serveur ne l'accepte qu'à l'inscription.
+  final String referralCode;
 
   final String phone;
   final String password;
@@ -76,7 +80,7 @@ class RegistrationForm extends Equatable {
 
   @override
   List<Object?> get props =>
-      [phone, firstName, lastName, gender, activities, vehicle, make, model, year, color, plate, seats];
+      [phone, firstName, lastName, gender, activities, vehicle, make, model, year, color, plate, seats, referralCode];
 }
 
 enum DocumentType {

@@ -48,3 +48,28 @@ class GetPerformance implements UseCase<Performance, NoParams> {
   @override
   Future<Result<Performance>> call(NoParams _) => _repo.getPerformance();
 }
+
+class TransferParams {
+  const TransferParams({required this.wallet, required this.phone, required this.amount, this.note});
+  final PartnerWallet wallet;
+  final String phone;
+  final int amount;
+  final String? note;
+}
+
+/// Seul le solde principal peut être envoyé (pas le bonus). Le minimum exact est fixé par le serveur.
+class TransferMoney implements UseCase<TransferReceipt, TransferParams> {
+  const TransferMoney(this._repo);
+  final EarningsRepository _repo;
+
+  @override
+  Future<Result<TransferReceipt>> call(TransferParams p) async {
+    final digits = p.phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.length != 8 && !(digits.length == 10 && digits.startsWith('01'))) {
+      return const Err(ValidationFailure('Numéro invalide : 10 chiffres commençant par 01.'));
+    }
+    if (p.amount <= 0) return const Err(ValidationFailure('Indiquez un montant.'));
+    if (p.amount > p.wallet.available) return const Err(InsufficientFundsFailure('Montant supérieur à votre solde.'));
+    return _repo.transfer(phone: digits, amount: p.amount, note: p.note);
+  }
+}

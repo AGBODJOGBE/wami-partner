@@ -8,6 +8,7 @@ abstract interface class EarningsRemoteDataSource {
   Future<PartnerWallet> wallet();
   Future<PartnerWallet> withdraw(int amount);
   Future<Performance> performance();
+  Future<TransferReceipt> transfer(String phone, int amount, String? note);
 }
 
 int _int(Object? v) => v is num ? v.round() : 0;
@@ -188,6 +189,26 @@ class EarningsApiDataSource implements EarningsRemoteDataSource {
   }
 
   @override
+  Future<TransferReceipt> transfer(String phone, int amount, String? note) async {
+    // Le contrôle de solde du serveur compte aussi le bonus ; un transfert de gains ne peut débiter que le solde principal.
+    final check = await _api.get('$_wallet/balance/check', query: {'amount': amount});
+    if (_int(check['mainBalance']) < amount) {
+      throw const BusinessRuleException('insufficient_funds', 'Solde principal insuffisant. Transférez d’abord votre bonus.');
+    }
+    final j = await _api.post('$_wallet/transfer', body: {
+      'recipientPhone': phone.startsWith('+') ? phone : '+229$phone',
+      'amount': amount,
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+    });
+    return TransferReceipt(
+      sent: _int(j['sentAmount']),
+      fee: _int(j['feeAmount']),
+      received: _int(j['receivedAmount']),
+      remaining: _int(j['senderRemainingBalance']),
+    );
+  }
+
+  @override
   Future<Performance> performance() async {
     final stats = await _api.get('/api/drivers/stats');
     var done = 0;
@@ -290,6 +311,14 @@ class EarningsFakeDataSource implements EarningsRemoteDataSource {
     _available -= amount;
     _movements.insert(0, WalletMovement(label: 'Retrait Mobile Money', date: DateTime.now(), amount: -amount));
     return _snapshot();
+  }
+
+  @override
+  Future<TransferReceipt> transfer(String phone, int amount, String? note) async {
+    await _fake.latency(0.8);
+    _available -= amount;
+    final fee = (amount * 0.02).round();
+    return TransferReceipt(sent: amount, fee: fee, received: amount - fee, remaining: _available);
   }
 
   @override

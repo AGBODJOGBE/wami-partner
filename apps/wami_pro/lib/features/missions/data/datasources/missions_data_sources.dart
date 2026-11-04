@@ -333,7 +333,7 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
   // ── Véhicule ──
 
   Future<String> _vehicle() async {
-    final cached = _vehicleId;
+    final cached = _session.activeVehicleId ?? _vehicleId;
     if (cached != null) return cached;
     final p = await _api.get('/api/drivers/profile');
     var id = p['assignedVehicleId'] as String?;
@@ -342,6 +342,7 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
       id = v['id'] as String?;
     }
     if (id == null) throw const BusinessRuleException('no_vehicle', 'Aucun véhicule actif sur votre compte.');
+    _session.activeVehicleId = id;
     return _vehicleId = id;
   }
 

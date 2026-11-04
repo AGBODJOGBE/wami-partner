@@ -9,7 +9,7 @@ import '../../../../shared/routes.dart';
 import '../../domain/entities/fare.dart';
 import '../../domain/entities/mission.dart';
 import '../bloc/missions_bloc.dart';
-import '../widgets/mission_dialogs.dart';
+import '../../../../shared/dialogs.dart';
 import '../widgets/mission_widgets.dart';
 
 /// Mission en cours. Le panneau change selon l'étape :

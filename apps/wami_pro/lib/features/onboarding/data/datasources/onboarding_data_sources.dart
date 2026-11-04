@@ -81,6 +81,7 @@ class OnboardingApiDataSource implements OnboardingRemoteDataSource {
       'category': 'STANDARD',
       'driverType': PartnerActivity.apiType(f.activities),
       'isVehicleOwner': 'true',
+      if (f.referralCode.trim().isNotEmpty) 'usedReferralCode': f.referralCode.trim().toUpperCase(),
       'ownVehicle[type]': f.vehicle.apiName,
       'ownVehicle[make]': f.make.trim(),
       'ownVehicle[model]': f.model.trim(),
