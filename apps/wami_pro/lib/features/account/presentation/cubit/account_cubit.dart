@@ -36,3 +36,17 @@ class AccountCubit extends Cubit<AccountState> {
     if (!r.isOk) emit(AccountState(status: LoadStatus.ready, account: a, failure: r.fold((f) => f, (_) => null)));
   }
 }
+
+/// Changement de mot de passe (`PUT /api/drivers/password`).
+class PasswordCubit extends Cubit<AccountState> {
+  PasswordCubit(this._change) : super(const AccountState());
+  final ChangePassword _change;
+
+  /// `true` si le mot de passe a été changé.
+  Future<bool> submit({required String current, required String next, required String confirm}) async {
+    emit(const AccountState(status: LoadStatus.loading));
+    final r = await _change(ChangePasswordParams(current: current, next: next, confirm: confirm));
+    emit(AccountState(status: r.isOk ? LoadStatus.ready : LoadStatus.failure, failure: r.fold((f) => f, (_) => null)));
+    return r.isOk;
+  }
+}

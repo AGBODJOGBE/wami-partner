@@ -12,6 +12,10 @@ L'application client vit dans **son propre dépôt** et n'est pas concernée ici
 > ⚠️ **Code non compilé.** Il a été écrit sans SDK Flutter disponible ; seules la syntaxe,
 > la résolution des imports et des symboles ont été vérifiées par script.
 > Commencez par `flutter analyze` (voir plus bas) et corrigez ce qu'il signale.
+>
+> **WAMI Pro est branché sur le backend `wami-co`** (connexion, missions, livraisons, gains, bonus,
+> contrat, notifications) : voir [`apps/wami_pro/API.md`](apps/wami_pro/API.md) pour les routes, les écarts
+> et les points à régler côté serveur. WAMI Business reste sur son faux backend.
 
 ---
 
@@ -189,14 +193,14 @@ flutter pub get
 flutter analyze
 flutter test
 flutter run                       # faux backend : démo complète sans serveur
-flutter run --dart-define=WAMI_FAKE_BACKEND=false --dart-define=WAMI_API_URL=https://api.exemple
+flutter run --dart-define=WAMI_FAKE_BACKEND=false --dart-define=WAMI_API_URL=https://api.exemple   # hôte sans /api (Pro)
 ```
 
 ### Parcours de démo (faux backend)
 
 | App | Code SMS | Autres codes |
 |---|---|---|
-| Pro | `1234` | code client / destinataire : `4821` |
+| Pro | `123456` (inscription), connexion : tout mot de passe | code du destinataire d'une livraison : `482193` (une course ne demande aucun code) |
 | Business | `1234` | check-in hôtel : `482193` · billet de bus : `300512` |
 
 Dans Business, les pièces envoyées sont validées 3 s plus tard ; le compte de démo gère un

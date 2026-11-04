@@ -7,6 +7,12 @@ import 'package:wami_core/wami_core.dart';
 
 import '../../features/account/presentation/cubit/account_cubit.dart';
 import '../../features/account/presentation/pages/account_page.dart';
+import '../../features/bonus/presentation/cubit/bonus_cubit.dart';
+import '../../features/bonus/presentation/pages/bonus_page.dart';
+import '../../features/contract/presentation/cubit/contract_cubit.dart';
+import '../../features/contract/presentation/pages/contract_page.dart';
+import '../../features/notifications/presentation/cubit/notifications_cubit.dart';
+import '../../features/notifications/presentation/pages/notifications_page.dart';
 import '../../features/earnings/presentation/cubit/earnings_cubits.dart';
 import '../../features/earnings/presentation/pages/earnings_pages.dart';
 import '../../features/missions/presentation/pages/active_mission_page.dart';
@@ -118,6 +124,31 @@ class AppRouter {
                 create: (_) => sl<AccountCubit>()..load(),
                 child: AccountPage(onLogout: _session.logout),
               ),
+              routes: [
+                GoRoute(
+                  path: 'notifications',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(
+                    create: (_) => sl<NotificationsCubit>()..load(),
+                    child: const NotificationsPage(),
+                  ),
+                ),
+                GoRoute(
+                  path: 'bonus',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<BonusCubit>()..load(), child: const BonusPage()),
+                ),
+                GoRoute(
+                  path: 'contract',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<ContractCubit>()..load(), child: const ContractPage()),
+                ),
+                GoRoute(
+                  path: 'password',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<PasswordCubit>(), child: const ChangePasswordPage()),
+                ),
+              ],
             ),
           ]),
         ],

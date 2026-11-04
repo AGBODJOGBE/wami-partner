@@ -14,4 +14,8 @@ class AccountRepositoryImpl implements AccountRepository {
   @override
   Future<Result<PartnerPreferences>> savePreferences(PartnerPreferences preferences) =>
       guard(() => _remote.savePreferences(preferences));
+
+  @override
+  Future<Result<void>> changePassword({required String current, required String next}) =>
+      guard(() => _remote.changePassword(current, next));
 }

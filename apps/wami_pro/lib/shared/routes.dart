@@ -15,6 +15,10 @@ abstract final class ProRoutes {
   static const missions = '/missions';
   static const earnings = '/earnings';
   static const account = '/account';
+  static const notifications = '/account/notifications';
+  static const bonus = '/account/bonus';
+  static const contract = '/account/contract';
+  static const password = '/account/password';
 
   // Mission en cours.
   static const mission = '/mission';
