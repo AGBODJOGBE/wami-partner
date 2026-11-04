@@ -75,12 +75,28 @@ bloquée à la revue Google Play ou App Store à cause de l'autre.
 | Permission | Pro | Business | Pourquoi |
 |---|---|---|---|
 | Localisation au premier plan | oui | non | suivre la course, recevoir les offres proches |
-| Localisation en arrière-plan | à valider | non | suivi écran éteint ; très contrôlé par Google Play (vidéo de justification exigée) — préférer un service de premier plan |
+| Localisation en arrière-plan | **oui** | non | suivi de la course écran éteint (voir ci-dessous) |
 | Caméra | oui | oui | Pro : pièces, photo du colis · Business : scan des codes, photos de plats |
 | Notifications | oui | oui | offres, commandes, réservations |
 | Contacts, micro, SMS, stockage complet | non | non | à ne jamais ajouter sans besoin réel : motif fréquent de refus |
 
 Appeler ou écrire au client par `tel:` / `sms:` n'exige **aucune** permission.
+
+**Localisation en arrière-plan (Pro) — décision prise, à préparer avant la première publication**
+
+Google Play et Apple l'acceptent pour une app de chauffeurs, à condition de la justifier :
+- *Dans l'app* : un écran d'explication **avant** la demande système (« WAMI Pro utilise votre position
+  même app fermée pour suivre vos courses et vous proposer des missions proches »), avec un bouton
+  pour accepter et un pour refuser. Google l'exige (*prominent disclosure*).
+- *Android* : demander d'abord la localisation au premier plan, puis l'arrière-plan dans un second temps ;
+  déclarer `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE` et `FOREGROUND_SERVICE_LOCATION`
+  (Android 14+), service de type `location` avec une notification visible pendant la course.
+- *Google Play Console* : remplir la déclaration « Autorisations de localisation » avec une courte
+  vidéo montrant l'écran d'explication puis l'usage réel pendant une course.
+- *iOS* : `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`
+  et `UIBackgroundModes` → `location` dans l'`Info.plist` de Pro ; expliquer l'usage dans les notes
+  de revue App Store.
+- Business ne déclare **aucune** de ces permissions.
 
 **Pièges connus**
 - *Android — fusion des manifestes* : chaque plugin ajoute ses permissions au manifeste final.
