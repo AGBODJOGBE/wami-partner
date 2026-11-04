@@ -9,6 +9,7 @@ import '../../../../shared/routes.dart';
 import '../../domain/entities/fare.dart';
 import '../../domain/entities/mission.dart';
 import '../bloc/missions_bloc.dart';
+import '../widgets/mission_dialogs.dart';
 import '../widgets/mission_widgets.dart';
 
 /// Mission en cours. Le panneau change selon l'étape :
@@ -19,9 +20,14 @@ class ActiveMissionPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<MissionsBloc, MissionsState>(
-      listenWhen: (a, b) => (b.failure != null && a.failure != b.failure) || (a.receipt == null && b.receipt != null),
+      listenWhen: (a, b) =>
+          (b.failure != null && a.failure != b.failure) ||
+          (a.receipt == null && b.receipt != null) ||
+          (a.active != null && b.active == null && b.receipt == null),
       listener: (context, s) {
         if (s.failure != null) showWamiMessage(context, s.failure!.message);
+        // Mission annulée, client absent ou colis rendu : retour à l'accueil.
+        if (s.active == null && s.receipt == null && context.canPop()) context.pop();
         // Seul l'écran visible navigue (la page de remise peut être au-dessus).
         if (s.receipt != null && (ModalRoute.of(context)?.isCurrent ?? true)) context.pushReplacement(ProRoutes.summary);
       },
@@ -67,13 +73,60 @@ class ActiveMissionPage extends StatelessWidget {
         MissionStage.paused => 'Course en pause',
         MissionStage.completed => 'Terminé',
         MissionStage.cancelled => 'Annulée',
+        MissionStage.failed => 'Livraison échouée',
+        MissionStage.returning => 'Retour du colis',
       };
 
   List<Widget> _panel(BuildContext context, MissionsState s, ActiveMission m) {
     final bloc = context.read<MissionsBloc>();
     final o = m.offer;
-    void soon(String what) => showWamiMessage(context, '$what : à brancher');
 
+    final dest = s.destinationChange;
+    final banner = <Widget>[
+      if (dest != null)
+        GlassCard(
+          borderColor: WamiColors.orangeLight.withValues(alpha: 0.6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('Le client veut changer de destination', style: Theme.of(context).textTheme.titleSmall),
+            Text(dest.address, style: Theme.of(context).textTheme.bodyMedium),
+            Text('Répondez dans ${dest.expiresInSeconds} s. Le prix sera recalculé.', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: WamiGhostButton(label: 'Refuser', onPressed: () => bloc.add(const DestinationAnswered(accept: false)))),
+              const SizedBox(width: 10),
+              Expanded(child: WamiPrimaryButton(label: 'Accepter', onPressed: () => bloc.add(const DestinationAnswered(accept: true)))),
+            ]),
+          ]),
+        ),
+    ];
+    return [...banner, ..._stagePanel(context, s, m, bloc, o)];
+  }
+
+  Future<void> _cancel(BuildContext context, ActiveMission m) async {
+    final reason = await askReason(
+      context,
+      title: 'Annuler la mission ?',
+      hint: 'Motif (facultatif)',
+      confirmLabel: 'Annuler la mission',
+      suggestions: m.offer.kind.isDelivery ? const ['Colis introuvable', 'Problème de véhicule'] : const ['Problème de véhicule', 'Client injoignable'],
+    );
+    if (reason != null && context.mounted) context.read<MissionsBloc>().add(CancelRequested(reason));
+  }
+
+  Future<void> _fail(BuildContext context) async {
+    final reason = await askReason(
+      context,
+      title: 'Signaler un échec',
+      hint: 'Que s’est-il passé ?',
+      confirmLabel: 'Signaler',
+      suggestions: const ['Expéditeur absent', 'Colis non prêt', 'Adresse introuvable', 'Destinataire absent', 'Refus du colis'],
+      required: true,
+    );
+    if (reason != null && context.mounted) context.read<MissionsBloc>().add(FailureReported(reason));
+  }
+
+  List<Widget> _stagePanel(BuildContext context, MissionsState s, ActiveMission m, MissionsBloc bloc, MissionOffer o) {
+    void soon(String what) => showWamiMessage(context, '$what : à brancher');
     switch (m.stage) {
       case MissionStage.toPickup:
         return [
@@ -90,7 +143,7 @@ class ActiveMissionPage extends StatelessWidget {
             GlassCard(child: Text('« ${o.pickup.note} »', style: Theme.of(context).textTheme.bodyMedium)),
           CustomerDock(
             name: o.pickup.contactName ?? o.customerName,
-            onMessage: () => Contact.message(context, o.pickup.contactPhone),
+            onMessage: () => context.push(ProRoutes.chat),
             onCall: () => Contact.call(context, o.pickup.contactPhone),
           ),
           WamiPrimaryButton(
@@ -103,10 +156,16 @@ class ActiveMissionPage extends StatelessWidget {
             loading: s.busy,
             onPressed: () => bloc.add(const ArrivedPressed()),
           ),
+          TextButton(onPressed: s.busy ? null : () => _cancel(context, m), child: const Text('Annuler la mission')),
         ];
 
       case MissionStage.atPickup:
-        if (o.kind.isDelivery) return [_PickupPanel(mission: m, busy: s.busy)];
+        if (o.kind.isDelivery) {
+          return [
+            _PickupPanel(mission: m, busy: s.busy),
+            TextButton(onPressed: s.busy ? null : () => _fail(context), child: const Text('Signaler un problème à la collecte')),
+          ];
+        }
         return [_RideStartPanel(waited: m.waitedSeconds(s.now), policy: s.policy, name: o.customerName, phone: o.pickup.contactPhone, busy: s.busy)];
 
       case MissionStage.inProgress:
@@ -159,12 +218,45 @@ class ActiveMissionPage extends StatelessWidget {
               loading: s.busy,
               onPressed: () => bloc.add(const PauseToggled()),
             ),
-          ] else
+          ] else ...[
             WamiPrimaryButton(
               label: 'Je suis chez le destinataire',
               icon: Icons.flag_rounded,
               onPressed: () => context.push(ProRoutes.handover),
             ),
+            TextButton(onPressed: s.busy ? null : () => _fail(context), child: const Text('Remise impossible : signaler')),
+          ],
+        ];
+
+      case MissionStage.failed:
+        return [
+          Text('Livraison échouée', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            m.canReturn
+                ? 'Rapportez le colis à l’expéditeur, ou annulez la mission.'
+                : 'Le colis n’a pas été collecté : annulez la mission.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (m.canReturn)
+            WamiPrimaryButton(
+              label: 'Retourner le colis',
+              icon: Icons.u_turn_left_rounded,
+              loading: s.busy,
+              onPressed: () => bloc.add(const ReturnStarted()),
+            ),
+          WamiGhostButton(label: 'Annuler la mission', onPressed: s.busy ? null : () => _cancel(context, m)),
+        ];
+
+      case MissionStage.returning:
+        return [
+          Text('Retour du colis', style: Theme.of(context).textTheme.titleMedium),
+          Text('Rendez le colis à ${o.pickup.contactName ?? 'l’expéditeur'}, puis confirmez.', style: Theme.of(context).textTheme.bodySmall),
+          WamiPrimaryButton(
+            label: 'Colis rendu',
+            icon: Icons.check_rounded,
+            loading: s.busy,
+            onPressed: () => bloc.add(const ReturnCompleted()),
+          ),
         ];
 
       case MissionStage.completed:
@@ -197,12 +289,15 @@ class _RideStartPanelState extends State<_RideStartPanel> {
         const SizedBox(height: 12),
         CustomerDock(
           name: widget.name,
-          onMessage: () => Contact.message(context, widget.phone),
+          onMessage: () => context.push(ProRoutes.chat),
           onCall: () => Contact.call(context, widget.phone),
         ),
         const SizedBox(height: 12),
         if (widget.waited >= widget.policy.noShowCancelSeconds)
-          TextButton(onPressed: () {}, child: const Text('Client absent : annuler avec frais (à valider)')),
+          TextButton(
+            onPressed: widget.busy ? null : () => context.read<MissionsBloc>().add(const NoShowRequested()),
+            child: const Text('Client absent : annuler avec frais'),
+          ),
         const SizedBox(height: 6),
         WamiPrimaryButton(
           label: 'Démarrer la course',

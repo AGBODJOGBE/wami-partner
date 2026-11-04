@@ -64,4 +64,36 @@ class MissionsRepositoryImpl implements MissionsRepository {
 
   @override
   Future<Result<void>> rateCustomer(String missionId, int stars) => guard(() => _remote.rate(missionId, stars));
+
+  @override
+  Future<Result<void>> cancel(String missionId, {String? reason}) => guard(() => _remote.cancel(missionId, reason));
+
+  @override
+  Future<Result<void>> declareNoShow(String missionId, {String? reason}) => guard(() => _remote.noShow(missionId, reason));
+
+  @override
+  Future<Result<ActiveMission>> reportFailure(String missionId, String reason) =>
+      guard(() => _remote.reportFailure(missionId, reason));
+
+  @override
+  Future<Result<ActiveMission>> startReturn(String missionId) => guard(() => _remote.startReturn(missionId));
+
+  @override
+  Future<Result<void>> completeReturn(String missionId) => guard(() => _remote.completeReturn(missionId));
+
+  @override
+  Stream<DestinationChange> destinationChanges() => _remote.destinationChanges();
+
+  @override
+  Future<Result<ActiveMission>> answerDestination(String missionId, {required bool accept, String? reason}) =>
+      guard(() => _remote.answerDestination(missionId, accept, reason));
+
+  @override
+  Stream<String?> hotZones() => _remote.hotZones();
+
+  @override
+  Future<Result<DirectEstimate>> estimateDirect(DirectRideRequest request) => guard(() => _remote.estimateDirect(request));
+
+  @override
+  Future<Result<ActiveMission>> startDirect(DirectRideRequest request) => guard(() => _remote.startDirect(request));
 }

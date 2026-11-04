@@ -30,6 +30,7 @@ import '../../features/missions/data/repositories/missions_repository_impl.dart'
 import '../../features/missions/domain/repositories/missions_repository.dart';
 import '../../features/missions/domain/usecases/missions_usecases.dart';
 import '../../features/missions/presentation/bloc/missions_bloc.dart';
+import '../../features/missions/presentation/cubit/direct_ride_cubit.dart';
 import '../../features/onboarding/data/datasources/onboarding_data_sources.dart';
 import '../../features/onboarding/data/repositories/onboarding_repository_impl.dart';
 import '../../features/onboarding/domain/repositories/onboarding_repository.dart';
@@ -117,6 +118,16 @@ void _missions(bool fake) {
     ..registerLazySingleton(() => WatchOffers(sl()))
     ..registerLazySingleton(() => GetCurrentMission(sl()))
     ..registerLazySingleton(() => WatchCancellations(sl()))
+    ..registerLazySingleton(() => CancelMission(sl()))
+    ..registerLazySingleton(() => DeclareNoShow(sl()))
+    ..registerLazySingleton(() => ReportDeliveryFailure(sl()))
+    ..registerLazySingleton(() => StartReturn(sl()))
+    ..registerLazySingleton(() => CompleteReturn(sl()))
+    ..registerLazySingleton(() => WatchDestinationChanges(sl()))
+    ..registerLazySingleton(() => AnswerDestinationChange(sl()))
+    ..registerLazySingleton(() => WatchHotZones(sl()))
+    ..registerLazySingleton(() => EstimateDirectRide(sl()))
+    ..registerLazySingleton(() => StartDirectRide(sl()))
     ..registerLazySingleton(() => AcceptMission(sl()))
     ..registerLazySingleton(() => DeclineMission(sl()))
     ..registerLazySingleton(() => MarkArrived(sl()))
@@ -126,6 +137,7 @@ void _missions(bool fake) {
     ..registerLazySingleton(() => ConfirmPickup(sl()))
     ..registerLazySingleton(() => ConfirmHandover(sl()))
     ..registerLazySingleton(() => RateCustomer(sl()))
+    ..registerFactory(() => DirectRideCubit(sl(), sl()))
     ..registerFactory(
       () => MissionsBloc(
         getDay: sl(),
@@ -134,6 +146,14 @@ void _missions(bool fake) {
         watchOffers: sl(),
         currentMission: sl(),
         watchCancellations: sl(),
+        cancel: sl(),
+        noShow: sl(),
+        reportFailure: sl(),
+        startReturn: sl(),
+        completeReturn: sl(),
+        watchDestinationChanges: sl(),
+        answerDestination: sl(),
+        watchHotZones: sl(),
         accept: sl(),
         decline: sl(),
         arrived: sl(),
