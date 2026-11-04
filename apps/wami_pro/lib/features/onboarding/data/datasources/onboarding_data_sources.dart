@@ -1,5 +1,6 @@
 import 'package:wami_core/wami_core.dart';
 
+import '../../../../shared/push_service.dart';
 import '../../../../shared/session_store.dart';
 import '../../domain/entities/partner.dart';
 
@@ -38,9 +39,10 @@ DocumentStatus _docStatus(String s) => switch (s) {
 ///   dans le statut des documents et du véhicule ;
 /// - pas de formation en ligne : l'étape est considérée comme faite.
 class OnboardingApiDataSource implements OnboardingRemoteDataSource {
-  OnboardingApiDataSource(this._api, this._session);
+  OnboardingApiDataSource(this._api, this._session, this._push);
   final ApiClient _api;
   final SessionStore _session;
+  final PushService _push;
 
   String? _vehicleId;
   List<Map<String, dynamic>> _docs = const [];
@@ -220,7 +222,10 @@ class OnboardingApiDataSource implements OnboardingRemoteDataSource {
   Future<void> completeTraining() async {}
 
   @override
-  Future<void> logout() => _session.clear();
+  Future<void> logout() async {
+    await _push.unregister(); // tant que le jeton de session est encore valide
+    await _session.clear();
+  }
 }
 
 /// Inscription simulée. Code SMS de démonstration : 123456, mot de passe libre.

@@ -23,6 +23,9 @@ dependencies:
   image_picker: ^1.1.2             # pièces, photos de colis
   socket_io_client: ^3.0.2         # offres et suivi en temps réel (pur Dart)
   url_launcher: ^6.3.1             # appel et SMS vers le client
+  firebase_core: ^3.8.1            # push : nécessite google-services.json / GoogleService-Info.plist
+  firebase_messaging: ^15.1.6      # push : offres et rappels app fermée
+  package_info_plus: ^8.1.2        # version installée (mise à jour forcée)
 
 dev_dependencies:
   flutter_test:

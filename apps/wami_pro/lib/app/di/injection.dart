@@ -35,7 +35,9 @@ import '../../features/onboarding/data/repositories/onboarding_repository_impl.d
 import '../../features/onboarding/domain/repositories/onboarding_repository.dart';
 import '../../features/onboarding/domain/usecases/onboarding_usecases.dart';
 import '../../features/onboarding/presentation/cubit/onboarding_cubit.dart';
+import '../../shared/app_version.dart';
 import '../../shared/location_service.dart';
+import '../../shared/push_service.dart';
 import '../../shared/realtime_client.dart';
 import '../../shared/session_store.dart';
 import '../session/session_cubit.dart';
@@ -51,6 +53,8 @@ Future<void> configureDependencies(AppConfig config) async {
     ..registerLazySingleton(() => FakeBackend(sl()))
     ..registerLazySingleton(() => SessionStore(sl()))
     ..registerLazySingleton(LocationService.new)
+    ..registerLazySingleton(() => PushService(sl()))
+    ..registerLazySingleton(() => AppVersionService(sl()))
     ..registerLazySingleton(() => RealtimeClient(sl(), sl()));
   sl<SessionStore>().onCleared = sl<RealtimeClient>().disconnect;
 
@@ -67,7 +71,7 @@ Future<void> configureDependencies(AppConfig config) async {
 void _onboarding(bool fake) {
   sl
     ..registerLazySingleton<OnboardingRemoteDataSource>(
-      () => fake ? OnboardingFakeDataSource(sl()) : OnboardingApiDataSource(sl(), sl()),
+      () => fake ? OnboardingFakeDataSource(sl()) : OnboardingApiDataSource(sl(), sl(), sl()),
     )
     ..registerLazySingleton<OnboardingRepository>(() => OnboardingRepositoryImpl(sl()))
     ..registerLazySingleton(() => GetSession(sl()))
