@@ -200,8 +200,18 @@ flutter pub get
 flutter analyze
 flutter test
 flutter run                       # faux backend : démo complète sans serveur
-flutter run --dart-define=WAMI_FAKE_BACKEND=false --dart-define=WAMI_API_URL=https://api.exemple   # hôte sans /api (Pro)
+flutter run                       # Pro : backend local (voir ci-dessous) ; Business : faux backend
+flutter run --dart-define=WAMI_FAKE_BACKEND=true                       # Pro : démo sans serveur
+flutter run --dart-define=WAMI_API_URL=https://api.exemple             # Pro : production (hôte sans /api)
 ```
+
+### WAMI Pro sur le backend local
+
+Démarrez d'abord le backend `wami-co` (MongoDB et Redis requis : `npm run docker:up`, puis `npm run dev`, port 3000).
+Pro vise alors `http://10.0.2.2:3000` sur émulateur Android et `http://localhost:3000` sur simulateur iOS.
+Sur un **téléphone réel**, passez l'IP de l'ordinateur : `--dart-define=WAMI_API_URL=http://192.168.1.20:3000`.
+Après la mise en production, remplacez par l'URL réelle, sans `/api`. Le HTTP en clair n'est autorisé qu'en debug
+(`tool/setup_pro_platform.sh`).
 
 ### Parcours de démo (faux backend)
 

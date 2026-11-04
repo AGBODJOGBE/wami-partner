@@ -48,6 +48,15 @@ if "xmlns:tools" not in text:
     text = text.replace("<manifest ", '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
 manifest.write_text(text)
 
+# Backend local en HTTP : autorisé en debug seulement (jamais en release).
+debug = app / "android/app/src/debug/AndroidManifest.xml"
+if debug.exists():
+    d = debug.read_text()
+    if "usesCleartextTraffic" not in d:
+        d = d.replace("<application", '<application android:usesCleartextTraffic="true"', 1) if "<application" in d \
+            else d.replace("</manifest>", '    <application android:usesCleartextTraffic="true"/>\n</manifest>', 1)
+        debug.write_text(d)
+
 # flutter_secure_storage exige minSdk 23.
 for name in ("build.gradle", "build.gradle.kts"):
     g = app / "android/app" / name
@@ -72,6 +81,9 @@ entries = {
 add = "".join(f"\t<key>{k}</key>\n\t<string>{v}</string>\n" for k, v in entries.items() if k not in p)
 if "UIBackgroundModes" not in p:
     add += "\t<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>location</string>\n\t</array>\n"
+if "NSAppTransportSecurity" not in p:
+    # Autorise http://localhost (backend local) sans ouvrir l'accès au reste du réseau.
+    add += "\t<key>NSAppTransportSecurity</key>\n\t<dict>\n\t\t<key>NSAllowsLocalNetworking</key>\n\t\t<true/>\n\t</dict>\n"
 if "LSApplicationQueriesSchemes" not in p:
     add += "\t<key>LSApplicationQueriesSchemes</key>\n\t<array>\n\t\t<string>tel</string>\n\t\t<string>sms</string>\n\t</array>\n"
 if add:

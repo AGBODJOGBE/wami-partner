@@ -1,6 +1,6 @@
 # WAMI Pro — routes du backend utilisées
 
-Source : dépôt `wami-co` (Express, préfixe `/api`, pas de `/v1`). `WAMI_API_URL` est l'hôte **sans** `/api`
+Source : dépôt `wami-co` (Express, préfixe `/api`, pas de `/v1`). `WAMI_API_URL` est l’hôte **sans** `/api`
 (le socket se connecte au même hôte). Les succès sont enveloppés dans `{success, data}` (déballé par `ApiClient`).
 
 | Écran / feature | Route | Notes |
