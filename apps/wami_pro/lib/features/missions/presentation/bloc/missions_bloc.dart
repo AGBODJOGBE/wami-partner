@@ -24,6 +24,18 @@ final class OnlineToggled extends MissionsEvent {
   const OnlineToggled();
 }
 
+/// Déconnexion : arrête l'écoute et remet l'écran des missions à zéro.
+final class MissionsReset extends MissionsEvent {
+  const MissionsReset();
+}
+
+final class _Cancelled extends MissionsEvent {
+  const _Cancelled(this.missionId);
+  final String missionId;
+  @override
+  List<Object?> get props => [missionId];
+}
+
 final class _OfferArrived extends MissionsEvent {
   const _OfferArrived(this.offer);
   final MissionOffer offer;
@@ -51,7 +63,7 @@ final class ArrivedPressed extends MissionsEvent {
 }
 
 final class StartRequested extends MissionsEvent {
-  const StartRequested(this.code);
+  const StartRequested([this.code = '']);
   final String code;
   @override
   List<Object?> get props => [code];
@@ -66,19 +78,21 @@ final class CompleteRequested extends MissionsEvent {
 }
 
 final class PickupConfirmed extends MissionsEvent {
-  const PickupConfirmed({required this.checked, required this.photoTaken});
+  const PickupConfirmed({required this.checked, required this.photoTaken, this.photoPath});
   final Set<String> checked;
   final bool photoTaken;
+  final String? photoPath;
   @override
-  List<Object?> get props => [checked, photoTaken];
+  List<Object?> get props => [checked, photoTaken, photoPath];
 }
 
 final class HandoverConfirmed extends MissionsEvent {
-  const HandoverConfirmed({required this.code, required this.collectedWith});
+  const HandoverConfirmed({required this.code, required this.collectedWith, this.photoPath});
   final String code;
   final PaymentMode collectedWith;
+  final String? photoPath;
   @override
-  List<Object?> get props => [code, collectedWith];
+  List<Object?> get props => [code, collectedWith, photoPath];
 }
 
 final class ReceiptClosed extends MissionsEvent {
@@ -166,6 +180,8 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
     required GetFarePolicy getPolicy,
     required SetOnline setOnline,
     required WatchOffers watchOffers,
+    required GetCurrentMission currentMission,
+    required WatchCancellations watchCancellations,
     required AcceptMission accept,
     required DeclineMission decline,
     required MarkArrived arrived,
@@ -179,6 +195,8 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
         _getPolicy = getPolicy,
         _setOnline = setOnline,
         _watchOffers = watchOffers,
+        _currentMission = currentMission,
+        _watchCancellations = watchCancellations,
         _accept = accept,
         _decline = decline,
         _arrived = arrived,
@@ -191,6 +209,8 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
         super(MissionsState()) {
     on<MissionsStarted>(_onStarted);
     on<OnlineToggled>(_onOnline);
+    on<MissionsReset>(_onReset);
+    on<_Cancelled>(_onCancelled);
     on<_OfferArrived>(_onOffer);
     on<_Ticked>(_onTick);
     on<OfferAccepted>(_onAccept);
@@ -200,12 +220,16 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
     on<PauseToggled>((e, emit) => _runMission(emit, _togglePause.call));
     on<PickupConfirmed>((e, emit) => _runMission(
           emit,
-          (m) => _confirmPickup(PickupParams(mission: m, checked: e.checked, photoTaken: e.photoTaken)),
+          (m) => _confirmPickup(
+            PickupParams(mission: m, checked: e.checked, photoTaken: e.photoTaken, photoPath: e.photoPath),
+          ),
         ));
     on<CompleteRequested>((e, emit) => _finish(emit, (m) => _complete(m.offer.id)));
     on<HandoverConfirmed>((e, emit) => _finish(
           emit,
-          (m) => _handover(HandoverParams(missionId: m.offer.id, code: e.code, collectedWith: e.collectedWith)),
+          (m) => _handover(
+            HandoverParams(missionId: m.offer.id, code: e.code, collectedWith: e.collectedWith, photoPath: e.photoPath),
+          ),
         ));
     on<ReceiptClosed>(_onReceiptClosed);
   }
@@ -214,6 +238,8 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
   final GetFarePolicy _getPolicy;
   final SetOnline _setOnline;
   final WatchOffers _watchOffers;
+  final GetCurrentMission _currentMission;
+  final WatchCancellations _watchCancellations;
   final AcceptMission _accept;
   final DeclineMission _decline;
   final MarkArrived _arrived;
@@ -225,6 +251,7 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
   final RateCustomer _rate;
 
   StreamSubscription<MissionOffer>? _offersSub;
+  StreamSubscription<String>? _cancelSub;
   Timer? _ticker;
 
   Future<void> _onStarted(MissionsStarted e, Emitter<MissionsState> emit) async {
@@ -238,7 +265,30 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
       failure: day.fold((f) => f, (_) => null),
     ));
     _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) => add(_Ticked(DateTime.now())));
+    _cancelSub ??= _watchCancellations(const NoParams()).listen((id) => add(_Cancelled(id)));
     if (state.online) _listenOffers();
+
+    // Reprise d'une mission interrompue (app fermée en cours de course).
+    final current = await _currentMission(const NoParams());
+    final mission = current.valueOrNull;
+    if (mission != null && state.active == null) emit(state.copyWith(active: mission, now: DateTime.now()));
+  }
+
+  Future<void> _onReset(MissionsReset e, Emitter<MissionsState> emit) async {
+    await _offersSub?.cancel();
+    await _cancelSub?.cancel();
+    _offersSub = _cancelSub = null;
+    emit(MissionsState());
+  }
+
+  void _onCancelled(_Cancelled e, Emitter<MissionsState> emit) {
+    final m = state.active;
+    if (m == null || m.offer.id != e.missionId || m.stage == MissionStage.completed) return;
+    emit(state.copyWith(
+      clearActive: true,
+      clearReceipt: true,
+      failure: const ValidationFailure('Le client a annulé la mission.'),
+    ));
   }
 
   void _listenOffers() {
@@ -350,6 +400,7 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
   Future<void> close() async {
     _ticker?.cancel();
     await _offersSub?.cancel();
+    await _cancelSub?.cancel();
     return super.close();
   }
 }

@@ -12,6 +12,10 @@ L'application client vit dans **son propre dépôt** et n'est pas concernée ici
 > ⚠️ **Code non compilé.** Il a été écrit sans SDK Flutter disponible ; seules la syntaxe,
 > la résolution des imports et des symboles ont été vérifiées par script.
 > Commencez par `flutter analyze` (voir plus bas) et corrigez ce qu'il signale.
+>
+> **WAMI Pro est branché sur le backend `wami-co`** (connexion, missions, livraisons, gains, bonus,
+> contrat, notifications) : voir [`apps/wami_pro/API.md`](apps/wami_pro/API.md) pour les routes, les écarts
+> et les points à régler côté serveur. WAMI Business reste sur son faux backend.
 
 ---
 
@@ -169,12 +173,19 @@ Plus : avis clients avec réponse, équipe (rôles propriétaire / gérant / emp
 
 Prérequis : Flutter ≥ 3.27 (Dart ≥ 3.6).
 
-Les dossiers `android/` et `ios/` ne sont pas inclus. Générez-les une fois dans chaque app :
+Les dossiers `android/` et `ios/` ne sont pas inclus.
+
+**WAMI Pro** : un script les génère et y déclare les permissions de Pro (localisation y compris en arrière-plan,
+service de premier plan, caméra, notifications ; textes d'usage et mode arrière-plan iOS) :
 
 ```bash
-cd apps/wami_pro
-flutter create --org bj.wami --project-name wami_pro --platforms android,ios .
-cd ../wami_business
+./tool/setup_pro_platform.sh
+```
+
+**WAMI Business** : génération simple, sans permission de localisation :
+
+```bash
+cd apps/wami_business
 flutter create --org bj.wami --project-name wami_business --platforms android,ios .
 ```
 
@@ -189,14 +200,24 @@ flutter pub get
 flutter analyze
 flutter test
 flutter run                       # faux backend : démo complète sans serveur
-flutter run --dart-define=WAMI_FAKE_BACKEND=false --dart-define=WAMI_API_URL=https://api.exemple
+flutter run                       # Pro : backend local (voir ci-dessous) ; Business : faux backend
+flutter run --dart-define=WAMI_FAKE_BACKEND=true                       # Pro : démo sans serveur
+flutter run --dart-define=WAMI_API_URL=https://api.exemple             # Pro : production (hôte sans /api)
 ```
+
+### WAMI Pro sur le backend local
+
+Démarrez d'abord le backend `wami-co` (MongoDB et Redis requis : `npm run docker:up`, puis `npm run dev`, port 3000).
+Pro vise alors `http://10.0.2.2:3000` sur émulateur Android et `http://localhost:3000` sur simulateur iOS.
+Sur un **téléphone réel**, passez l'IP de l'ordinateur : `--dart-define=WAMI_API_URL=http://192.168.1.20:3000`.
+Après la mise en production, remplacez par l'URL réelle, sans `/api`. Le HTTP en clair n'est autorisé qu'en debug
+(`tool/setup_pro_platform.sh`).
 
 ### Parcours de démo (faux backend)
 
 | App | Code SMS | Autres codes |
 |---|---|---|
-| Pro | `1234` | code client / destinataire : `4821` |
+| Pro | `123456` (inscription), connexion : tout mot de passe | code du destinataire d'une livraison : `482193` (une course ne demande aucun code) |
 | Business | `1234` | check-in hôtel : `482193` · billet de bus : `300512` |
 
 Dans Business, les pièces envoyées sont validées 3 s plus tard ; le compte de démo gère un

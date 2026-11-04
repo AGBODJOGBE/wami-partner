@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wami_core/wami_core.dart';
 
+import '../../../../shared/contact.dart';
+import '../../../../shared/photo_picker.dart';
 import '../../../../shared/routes.dart';
 import '../../domain/entities/fare.dart';
 import '../../domain/entities/mission.dart';
@@ -79,7 +81,7 @@ class ActiveMissionPage extends StatelessWidget {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 SectionLabel(o.kind == MissionKind.ride ? 'Prise en charge' : 'Collecte'),
-                Text('${o.pickup.label} · ${o.pickup.address}', style: Theme.of(context).textTheme.titleSmall),
+                Text([o.pickup.label, o.pickup.address].where((e) => e.isNotEmpty).join(' · '), style: Theme.of(context).textTheme.titleSmall),
               ]),
             ),
             WamiIconButton(icon: Icons.navigation_rounded, tooltip: 'Ouvrir dans Google Maps', onPressed: () => soon('Navigation')),
@@ -88,8 +90,8 @@ class ActiveMissionPage extends StatelessWidget {
             GlassCard(child: Text('« ${o.pickup.note} »', style: Theme.of(context).textTheme.bodyMedium)),
           CustomerDock(
             name: o.pickup.contactName ?? o.customerName,
-            onMessage: () => soon('Messagerie'),
-            onCall: () => soon('Appel masqué'),
+            onMessage: () => Contact.message(context, o.pickup.contactPhone),
+            onCall: () => Contact.call(context, o.pickup.contactPhone),
           ),
           WamiPrimaryButton(
             label: switch (o.kind) {
@@ -105,7 +107,7 @@ class ActiveMissionPage extends StatelessWidget {
 
       case MissionStage.atPickup:
         if (o.kind.isDelivery) return [_PickupPanel(mission: m, busy: s.busy)];
-        return [_RideStartPanel(waited: m.waitedSeconds(s.now), policy: s.policy, name: o.customerName, busy: s.busy)];
+        return [_RideStartPanel(waited: m.waitedSeconds(s.now), policy: s.policy, name: o.customerName, phone: o.pickup.contactPhone, busy: s.busy)];
 
       case MissionStage.inProgress:
       case MissionStage.paused:
@@ -172,12 +174,13 @@ class ActiveMissionPage extends StatelessWidget {
   }
 }
 
-/// Course : compteur d'attente + code du client pour démarrer.
+/// Course : compteur d'attente puis démarrage (le serveur n'exige pas de code du client).
 class _RideStartPanel extends StatefulWidget {
-  const _RideStartPanel({required this.waited, required this.policy, required this.name, required this.busy});
+  const _RideStartPanel({required this.waited, required this.policy, required this.name, required this.phone, required this.busy});
   final int waited;
   final FarePolicy policy;
   final String name;
+  final String? phone;
   final bool busy;
 
   @override
@@ -185,8 +188,6 @@ class _RideStartPanel extends StatefulWidget {
 }
 
 class _RideStartPanelState extends State<_RideStartPanel> {
-  String _code = '';
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -194,12 +195,12 @@ class _RideStartPanelState extends State<_RideStartPanel> {
       children: [
         WaitingRing(waited: widget.waited, policy: widget.policy),
         const SizedBox(height: 12),
-        CustomerDock(name: widget.name, onMessage: () {}, onCall: () {}),
+        CustomerDock(
+          name: widget.name,
+          onMessage: () => Contact.message(context, widget.phone),
+          onCall: () => Contact.call(context, widget.phone),
+        ),
         const SizedBox(height: 12),
-        const Center(child: SectionLabel('Code de départ donné par le client')),
-        const SizedBox(height: 8),
-        CodeInput(onChanged: (v) => setState(() => _code = v)),
-        const SizedBox(height: 6),
         if (widget.waited >= widget.policy.noShowCancelSeconds)
           TextButton(onPressed: () {}, child: const Text('Client absent : annuler avec frais (à valider)')),
         const SizedBox(height: 6),
@@ -207,7 +208,7 @@ class _RideStartPanelState extends State<_RideStartPanel> {
           label: 'Démarrer la course',
           icon: Icons.play_arrow_rounded,
           loading: widget.busy,
-          onPressed: _code.length == 4 ? () => context.read<MissionsBloc>().add(StartRequested(_code)) : null,
+          onPressed: () => context.read<MissionsBloc>().add(const StartRequested()),
         ),
       ],
     );
@@ -226,7 +227,7 @@ class _PickupPanel extends StatefulWidget {
 
 class _PickupPanelState extends State<_PickupPanel> {
   final _checked = <String>{};
-  bool _photo = false;
+  String? _photoPath;
 
   @override
   Widget build(BuildContext context) {
@@ -262,18 +263,23 @@ class _PickupPanelState extends State<_PickupPanel> {
             ),
           if (needPhoto)
             ListRow(
-              title: _photo ? 'Photo prise' : 'Photo du colis',
+              title: _photoPath != null ? 'Photo prise' : 'Photo du colis',
               subtitle: 'Protège le livreur et l’expéditeur en cas de litige',
-              icon: _photo ? Icons.check_circle_rounded : Icons.photo_camera_outlined,
-              iconColor: _photo ? WamiColors.success : null,
-              onTap: () => setState(() => _photo = true), // caméra à brancher
+              icon: _photoPath != null ? Icons.check_circle_rounded : Icons.photo_camera_outlined,
+              iconColor: _photoPath != null ? WamiColors.success : null,
+              onTap: () async {
+                final path = await PhotoPicker.camera();
+                if (path != null) setState(() => _photoPath = path);
+              },
             ),
         ]),
         const SizedBox(height: 12),
         WamiPrimaryButton(
           label: o.kind == MissionKind.meal ? 'Repas récupéré' : 'Colis récupéré',
           loading: widget.busy,
-          onPressed: () => context.read<MissionsBloc>().add(PickupConfirmed(checked: {..._checked}, photoTaken: _photo)),
+          onPressed: () => context.read<MissionsBloc>().add(
+            PickupConfirmed(checked: {..._checked}, photoTaken: _photoPath != null, photoPath: _photoPath),
+          ),
         ),
       ],
     );

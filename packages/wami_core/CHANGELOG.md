@@ -2,6 +2,14 @@
 
 Chaque version publiée porte un tag git `core-vX.Y.Z`.
 
+## 0.2.0
+
+- `ApiClient` : `patch`, `delete`, envois `multipart` (`postForm`, `patchForm`), option `unwrapEnvelope`
+  (enveloppe `{success, data}`), lecture des trois formes d'erreur du serveur (message affichable).
+- `AuthInterceptor` : `token` et rappel `onSessionExpired` sur 401 quand un jeton était envoyé.
+- `WamiTextField.obscureText` (mot de passe).
+- Toujours en pur Dart : aucune nouvelle dépendance.
+
 ## 0.1.0
 
 - Design system WAMI : couleurs, typographie (Unbounded, DM Sans), tokens, thème sombre et clair.

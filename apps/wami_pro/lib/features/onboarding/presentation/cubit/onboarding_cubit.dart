@@ -67,12 +67,16 @@ class OnboardingState extends Equatable {
       [activities, vehicle, phone, busy, codeSent, session, documents, uploading, verification, failure];
 }
 
-/// Parcours d'inscription : métier → numéro → code → documents → vérification.
+/// Parcours d'inscription : métier → numéro → code → profil et véhicule → documents → vérification.
+/// Sert aussi à la connexion et à la réinitialisation du mot de passe.
 class OnboardingCubit extends Cubit<OnboardingState> {
   OnboardingCubit({
     required RequestOtp requestOtp,
     required VerifyOtp verifyOtp,
     required RegisterPartner register,
+    required LoginPartner login,
+    required RequestPasswordReset requestReset,
+    required ResetPassword resetPassword,
     required GetDocuments getDocuments,
     required UploadDocument upload,
     required SubmitForReview submit,
@@ -81,6 +85,9 @@ class OnboardingCubit extends Cubit<OnboardingState> {
   })  : _requestOtp = requestOtp,
         _verifyOtp = verifyOtp,
         _register = register,
+        _login = login,
+        _requestReset = requestReset,
+        _resetPassword = resetPassword,
         _getDocuments = getDocuments,
         _upload = upload,
         _submit = submit,
@@ -91,6 +98,9 @@ class OnboardingCubit extends Cubit<OnboardingState> {
   final RequestOtp _requestOtp;
   final VerifyOtp _verifyOtp;
   final RegisterPartner _register;
+  final LoginPartner _login;
+  final RequestPasswordReset _requestReset;
+  final ResetPassword _resetPassword;
   final GetDocuments _getDocuments;
   final UploadDocument _upload;
   final SubmitForReview _submit;
@@ -114,17 +124,41 @@ class OnboardingCubit extends Cubit<OnboardingState> {
     return r.isOk;
   }
 
+  /// Vérifie le code SMS ; le compte est créé ensuite (voir [register]).
   Future<bool> verify(String code) async {
     emit(state.copyWith(busy: true));
     final r = await _verifyOtp(VerifyOtpParams(phone: state.phone, code: code));
-    final session = r.valueOrNull;
-    if (session == null) {
-      emit(state.copyWith(busy: false, failure: r.fold((f) => f, (_) => null)));
-      return false;
-    }
-    final reg = await _register(RegisterParams(activities: state.activities, vehicle: state.vehicle));
-    emit(state.copyWith(busy: false, session: session, failure: reg.fold((f) => f, (_) => null)));
-    return reg.isOk;
+    emit(state.copyWith(busy: false, failure: r.fold((f) => f, (_) => null)));
+    return r.isOk;
+  }
+
+  /// Crée le compte et ouvre la session.
+  Future<bool> register(RegistrationForm form) async {
+    emit(state.copyWith(busy: true));
+    final r = await _register(form);
+    emit(state.copyWith(busy: false, session: r.valueOrNull, failure: r.fold((f) => f, (_) => null)));
+    return r.isOk;
+  }
+
+  Future<bool> login(String phone, String password) async {
+    emit(state.copyWith(busy: true));
+    final r = await _login(LoginParams(phone: phone, password: password));
+    emit(state.copyWith(busy: false, session: r.valueOrNull, failure: r.fold((f) => f, (_) => null)));
+    return r.isOk;
+  }
+
+  Future<bool> requestPasswordReset(String phone) async {
+    emit(state.copyWith(busy: true));
+    final r = await _requestReset(phone);
+    emit(state.copyWith(busy: false, failure: r.fold((f) => f, (_) => null)));
+    return r.isOk;
+  }
+
+  Future<bool> resetPassword(String phone, String code, String newPassword) async {
+    emit(state.copyWith(busy: true));
+    final r = await _resetPassword(ResetPasswordParams(phone: phone, code: code, newPassword: newPassword));
+    emit(state.copyWith(busy: false, failure: r.fold((f) => f, (_) => null)));
+    return r.isOk;
   }
 
   Future<void> loadDocuments() async {
@@ -132,9 +166,9 @@ class OnboardingCubit extends Cubit<OnboardingState> {
     emit(r.fold((f) => state.copyWith(failure: f), (docs) => state.copyWith(documents: docs)));
   }
 
-  Future<void> upload(DocumentType type) async {
+  Future<void> upload(DocumentType type, String filePath) async {
     emit(state.copyWith(uploading: type));
-    final r = await _upload(type);
+    final r = await _upload(UploadParams(type: type, filePath: filePath));
     r.fold(
       (f) => emit(state.copyWith(clearUploading: true, failure: f)),
       (doc) => emit(state.copyWith(

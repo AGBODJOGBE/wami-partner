@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:wami_core/wami_core.dart';
 
 import '../../../../shared/pro_accent.dart';
+import '../../../../shared/routes.dart';
 import '../../domain/entities/partner_account.dart';
 import '../cubit/account_cubit.dart';
 
@@ -86,6 +88,13 @@ class AccountPage extends StatelessWidget {
                       ]),
                       const SizedBox(height: 14),
                       GlassGroup(children: [
+                        ListRow(title: 'Notifications', icon: Icons.notifications_none_rounded, onTap: () => context.push(ProRoutes.notifications)),
+                        ListRow(title: 'Bonus', icon: Icons.card_giftcard_rounded, onTap: () => context.push(ProRoutes.bonus)),
+                        ListRow(title: 'Mon contrat de véhicule', icon: Icons.assignment_outlined, onTap: () => context.push(ProRoutes.contract)),
+                        ListRow(title: 'Changer mon mot de passe', icon: Icons.lock_outline_rounded, onTap: () => context.push(ProRoutes.password)),
+                      ]),
+                      const SizedBox(height: 14),
+                      GlassGroup(children: [
                         ListRow(title: 'Assistance partenaires', icon: Icons.support_agent_rounded, onTap: () {}),
                         ListRow(title: 'Se déconnecter', icon: Icons.logout_rounded, iconColor: context.wami.danger, onTap: onLogout),
                       ]),
@@ -108,4 +117,60 @@ class AccountPage extends StatelessWidget {
         ComplianceState.expiringSoon => 'Renouveler',
         ComplianceState.expired => 'Expiré',
       };
+}
+
+/// Changement de mot de passe, ouvert depuis l'onglet Compte.
+class ChangePasswordPage extends StatefulWidget {
+  const ChangePasswordPage({super.key});
+
+  @override
+  State<ChangePasswordPage> createState() => _ChangePasswordPageState();
+}
+
+class _ChangePasswordPageState extends State<ChangePasswordPage> {
+  final _current = TextEditingController();
+  final _next = TextEditingController();
+  final _confirm = TextEditingController();
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _next.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocConsumer<PasswordCubit, AccountState>(
+      listenWhen: (a, b) => b.failure != null && a.failure != b.failure,
+      listener: (context, s) => showWamiMessage(context, s.failure!.message),
+      builder: (context, s) {
+        return WamiScreen(
+          title: 'Mot de passe',
+          glow: ProAccent.glow,
+          body: Gap(
+            children: [
+              WamiTextField(hint: 'Mot de passe actuel', controller: _current, obscureText: true, icon: Icons.lock_outline_rounded),
+              WamiTextField(hint: 'Nouveau mot de passe', controller: _next, obscureText: true, icon: Icons.lock_reset_rounded),
+              WamiTextField(hint: 'Confirmer le nouveau mot de passe', controller: _confirm, obscureText: true, icon: Icons.lock_reset_rounded),
+              Text('8 caractères minimum, avec une majuscule, une minuscule et un chiffre.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11.5)),
+            ],
+          ),
+          bottom: WamiPrimaryButton(
+            label: 'Changer le mot de passe',
+            loading: s.status.isLoading,
+            onPressed: () async {
+              final ok = await context.read<PasswordCubit>().submit(current: _current.text, next: _next.text, confirm: _confirm.text);
+              if (ok && context.mounted) {
+                showWamiMessage(context, 'Mot de passe modifié.');
+                context.pop();
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
 }

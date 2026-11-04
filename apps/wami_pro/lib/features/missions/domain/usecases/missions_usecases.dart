@@ -4,7 +4,8 @@ import '../entities/fare.dart';
 import '../entities/mission.dart';
 import '../repositories/missions_repository.dart';
 
-final _code = RegExp(r'^\d{4}$');
+/// Code du destinataire d'une livraison : 6 chiffres envoyés par SMS.
+final _deliveryCode = RegExp(r'^\d{6}$');
 
 class GetDriverDay implements UseCase<DriverDay, NoParams> {
   const GetDriverDay(this._repo);
@@ -38,6 +39,22 @@ class WatchOffers implements StreamUseCase<MissionOffer, NoParams> {
   Stream<MissionOffer> call(NoParams _) => _repo.offers();
 }
 
+class GetCurrentMission implements UseCase<ActiveMission?, NoParams> {
+  const GetCurrentMission(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<ActiveMission?>> call(NoParams _) => _repo.currentMission();
+}
+
+class WatchCancellations implements StreamUseCase<String, NoParams> {
+  const WatchCancellations(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Stream<String> call(NoParams _) => _repo.cancellations();
+}
+
 class AcceptMission implements UseCase<ActiveMission, String> {
   const AcceptMission(this._repo);
   final MissionsRepository _repo;
@@ -63,8 +80,10 @@ class MarkArrived implements UseCase<ActiveMission, String> {
 }
 
 class StartParams {
-  const StartParams({required this.missionId, required this.code});
+  const StartParams({required this.missionId, this.code = ''});
   final String missionId;
+
+  /// Inutilisé : le serveur ne demande aucun code au départ d'une course.
   final String code;
 }
 
@@ -74,10 +93,7 @@ class StartTrip implements UseCase<ActiveMission, StartParams> {
   final MissionsRepository _repo;
 
   @override
-  Future<Result<ActiveMission>> call(StartParams p) async {
-    if (!_code.hasMatch(p.code)) return const Err(ValidationFailure('Demandez au client son code à 4 chiffres.'));
-    return _repo.start(p.missionId, p.code);
-  }
+  Future<Result<ActiveMission>> call(StartParams p) => _repo.start(p.missionId, p.code);
 }
 
 class TogglePause implements UseCase<ActiveMission, ActiveMission> {
@@ -94,10 +110,13 @@ class TogglePause implements UseCase<ActiveMission, ActiveMission> {
 }
 
 class PickupParams {
-  const PickupParams({required this.mission, required this.checked, required this.photoTaken});
+  const PickupParams({required this.mission, required this.checked, required this.photoTaken, this.photoPath});
   final ActiveMission mission;
   final Set<String> checked;
   final bool photoTaken;
+
+  /// Fichier de la photo du colis (envoyé au serveur).
+  final String? photoPath;
 }
 
 /// Règle : toute la liste de contrôle cochée, et photo prise pour un colis.
@@ -112,7 +131,7 @@ class ConfirmPickup implements UseCase<ActiveMission, PickupParams> {
     if (PickupChecklist.photoRequired(p.mission.offer) && !p.photoTaken) {
       return const Err(ValidationFailure('Prenez une photo du colis.'));
     }
-    return _repo.confirmPickup(p.mission.offer.id, photoTaken: p.photoTaken);
+    return _repo.confirmPickup(p.mission.offer.id, photoTaken: p.photoTaken, photoPath: p.photoPath);
   }
 }
 
@@ -125,10 +144,13 @@ class CompleteTrip implements UseCase<MissionReceipt, String> {
 }
 
 class HandoverParams {
-  const HandoverParams({required this.missionId, required this.code, required this.collectedWith});
+  const HandoverParams({required this.missionId, required this.code, required this.collectedWith, this.photoPath});
   final String missionId;
   final String code;
   final PaymentMode collectedWith;
+
+  /// Photo de remise, exigée par le serveur pour clore la livraison.
+  final String? photoPath;
 }
 
 class ConfirmHandover implements UseCase<MissionReceipt, HandoverParams> {
@@ -137,8 +159,8 @@ class ConfirmHandover implements UseCase<MissionReceipt, HandoverParams> {
 
   @override
   Future<Result<MissionReceipt>> call(HandoverParams p) async {
-    if (!_code.hasMatch(p.code)) return const Err(ValidationFailure('Saisissez le code à 4 chiffres du destinataire.'));
-    return _repo.handover(p.missionId, code: p.code, collectedWith: p.collectedWith);
+    if (!_deliveryCode.hasMatch(p.code)) return const Err(ValidationFailure('Saisissez le code à 6 chiffres du destinataire.'));
+    return _repo.handover(p.missionId, code: p.code, collectedWith: p.collectedWith, photoPath: p.photoPath);
   }
 }
 

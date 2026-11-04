@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wami_core/wami_core.dart';
 
+import '../../../../shared/photo_picker.dart';
 import '../../../../shared/pro_accent.dart';
 import '../../../../shared/routes.dart';
 import '../../domain/entities/partner.dart';
@@ -67,13 +68,16 @@ class WelcomePage extends StatelessWidget {
               Text('Un code vous est envoyé par SMS.', style: t.bodySmall?.copyWith(fontSize: 11.5)),
             ],
           ),
-          bottom: WamiPrimaryButton(
-            label: 'Recevoir le code',
-            loading: s.busy,
-            onPressed: () async {
-              if (await cubit.sendCode() && context.mounted) context.push(ProRoutes.code);
-            },
-          ),
+          bottom: Column(mainAxisSize: MainAxisSize.min, children: [
+            WamiPrimaryButton(
+              label: 'Recevoir le code',
+              loading: s.busy,
+              onPressed: () async {
+                if (await cubit.sendCode() && context.mounted) context.push(ProRoutes.code);
+              },
+            ),
+            TextButton(onPressed: () => context.push(ProRoutes.login), child: const Text('J’ai déjà un compte')),
+          ]),
         );
       },
     );
@@ -85,7 +89,7 @@ class WelcomePage extends StatelessWidget {
 class OtpPage extends StatelessWidget {
   const OtpPage({super.key, required this.onRegistered});
 
-  /// Appelé une fois le compte créé (le routeur met à jour la session).
+  /// Conservé pour compatibilité du routeur : la session s'ouvre à la fin du formulaire de profil.
   final VoidCallback onRegistered;
 
   @override
@@ -100,15 +104,13 @@ class OtpPage extends StatelessWidget {
           glow: ProAccent.glow,
           body: Gap(
             children: [
-              Text('Saisissez le code reçu au +229 ${s.phone}.', style: Theme.of(context).textTheme.bodySmall),
+              Text('Saisissez le code à 6 chiffres reçu au +229 ${s.phone}.', style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 10),
               CodeInput(
+                length: 6,
                 onChanged: (code) async {
-                  if (code.length < 4) return;
-                  if (await cubit.verify(code) && context.mounted) {
-                    onRegistered();
-                    context.go(ProRoutes.documents);
-                  }
+                  if (code.length < 6) return;
+                  if (await cubit.verify(code) && context.mounted) context.push(ProRoutes.register);
                 },
               ),
               if (s.busy) const SizedBox(height: 60, child: WamiLoading()),
@@ -208,7 +210,6 @@ class _DocumentsPageState extends State<DocumentsPage> {
         DocumentType.license => Icons.credit_card_outlined,
         DocumentType.registration => Icons.description_outlined,
         DocumentType.insurance => Icons.verified_user_outlined,
-        DocumentType.vehiclePhotos => Icons.two_wheeler_rounded,
       };
 
   Color _tint(DocumentStatus s) => switch (s) {
@@ -221,8 +222,8 @@ class _DocumentsPageState extends State<DocumentsPage> {
 
 // ─── 4. Prise de photo guidée ────────────────────────────────────────────────
 
-/// Écran de capture. La caméra réelle est à brancher (paquet `camera`) :
-/// ici le déclencheur simule la prise puis l'envoi.
+/// Écran de capture : le déclencheur ouvre l'appareil photo (image_picker), la photo
+/// part aussitôt au serveur.
 class CapturePage extends StatelessWidget {
   const CapturePage({super.key, required this.type});
   final DocumentType type;
@@ -285,7 +286,9 @@ class CapturePage extends StatelessWidget {
                       label: 'Prendre la photo',
                       child: GestureDetector(
                         onTap: () async {
-                          await cubit.upload(type);
+                          final path = await PhotoPicker.camera();
+                          if (path == null) return;
+                          await cubit.upload(type, path);
                           if (context.mounted) context.pop();
                         },
                         child: Container(

@@ -21,14 +21,17 @@ enum PaymentMode {
 }
 
 class Stop extends Equatable {
-  const Stop({required this.label, required this.address, this.contactName, this.note});
+  const Stop({required this.label, required this.address, this.contactName, this.contactPhone, this.note});
   final String label;
   final String address;
   final String? contactName;
+
+  /// Numéro à appeler (client pour une course, expéditeur ou destinataire pour une livraison).
+  final String? contactPhone;
   final String? note;
 
   @override
-  List<Object?> get props => [label, address, contactName, note];
+  List<Object?> get props => [label, address, contactName, contactPhone, note];
 }
 
 /// Mission proposée au partenaire, à accepter dans le délai imparti.
@@ -82,6 +85,35 @@ class MissionOffer extends Equatable {
 
   /// Délai pour accepter (à valider : 15 s proposé).
   final int acceptSeconds;
+
+  MissionOffer copyWith({
+    Stop? pickup,
+    Stop? dropoff,
+    String? customerName,
+    String? parcelSize,
+    bool? fragile,
+  }) {
+    return MissionOffer(
+      id: id,
+      kind: kind,
+      pickup: pickup ?? this.pickup,
+      dropoff: dropoff ?? this.dropoff,
+      distanceToPickupKm: distanceToPickupKm,
+      tripKm: tripKm,
+      tripMinutes: tripMinutes,
+      clientPrice: clientPrice,
+      netEarning: netEarning,
+      payment: payment,
+      customerName: customerName ?? this.customerName,
+      customerRating: customerRating,
+      cashToCollect: cashToCollect,
+      parcelSize: parcelSize ?? this.parcelSize,
+      fragile: fragile ?? this.fragile,
+      orderNumber: orderNumber,
+      items: items,
+      acceptSeconds: acceptSeconds,
+    );
+  }
 
   @override
   List<Object?> get props => [

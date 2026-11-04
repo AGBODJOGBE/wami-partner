@@ -15,18 +15,29 @@ class OnboardingRepositoryImpl implements OnboardingRepository {
   Future<Result<void>> requestCode(String phone) => guard(() => _remote.requestCode(phone));
 
   @override
-  Future<Result<PartnerSession>> verifyCode({required String phone, required String code}) =>
+  Future<Result<void>> verifyCode({required String phone, required String code}) =>
       guard(() => _remote.verifyCode(phone, code));
 
   @override
-  Future<Result<void>> register({required Set<PartnerActivity> activities, required VehicleType vehicle}) =>
-      guard(() => _remote.register(activities, vehicle));
+  Future<Result<PartnerSession>> register(RegistrationForm form) => guard(() => _remote.register(form));
+
+  @override
+  Future<Result<PartnerSession>> login({required String phone, required String password}) =>
+      guard(() => _remote.login(phone, password));
+
+  @override
+  Future<Result<void>> requestPasswordReset(String phone) => guard(() => _remote.forgotPassword(phone));
+
+  @override
+  Future<Result<void>> resetPassword({required String phone, required String code, required String newPassword}) =>
+      guard(() => _remote.resetPassword(phone, code, newPassword));
 
   @override
   Future<Result<List<PartnerDocument>>> getDocuments() => guard(_remote.documents);
 
   @override
-  Future<Result<PartnerDocument>> uploadDocument(DocumentType type) => guard(() => _remote.upload(type));
+  Future<Result<PartnerDocument>> uploadDocument(DocumentType type, String filePath) =>
+      guard(() => _remote.upload(type, filePath));
 
   @override
   Future<Result<void>> submitForReview() => guard(_remote.submit);

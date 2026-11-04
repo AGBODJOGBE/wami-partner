@@ -22,6 +22,13 @@ class _WamiProAppState extends State<WamiProApp> {
   late final AppRouter _router = AppRouter(_session);
 
   @override
+  void initState() {
+    super.initState();
+    // Un 401 sur une session ouverte (jeton expiré, autre appareil) ramène à la connexion.
+    sl<AuthInterceptor>().onSessionExpired = _session.expire;
+  }
+
+  @override
   void dispose() {
     _session.close();
     super.dispose();
@@ -32,13 +39,22 @@ class _WamiProAppState extends State<WamiProApp> {
     return MultiBlocProvider(
       providers: [
         BlocProvider.value(value: _session),
-        BlocProvider(create: (_) => sl<MissionsBloc>()..add(const MissionsStarted())),
+        BlocProvider(create: (_) => sl<MissionsBloc>()),
       ],
-      child: MaterialApp.router(
-        title: 'WAMI Pro',
-        debugShowCheckedModeBanner: false,
-        theme: WamiTheme.dark(),
-        routerConfig: _router.config,
+      // Les missions ne démarrent qu'une fois le compte actif, et s'arrêtent à la déconnexion.
+      child: BlocListener<SessionCubit, SessionState>(
+        listenWhen: (a, b) => a.phase != b.phase,
+        listener: (context, s) {
+          final missions = context.read<MissionsBloc>();
+          if (s.phase == SessionPhase.active) missions.add(const MissionsStarted());
+          if (s.phase == SessionPhase.signedOut) missions.add(const MissionsReset());
+        },
+        child: MaterialApp.router(
+          title: 'WAMI Pro',
+          debugShowCheckedModeBanner: false,
+          theme: WamiTheme.dark(),
+          routerConfig: _router.config,
+        ),
       ),
     );
   }

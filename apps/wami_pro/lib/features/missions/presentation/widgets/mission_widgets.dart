@@ -117,8 +117,10 @@ class OfferSheet extends StatelessWidget {
             ]),
           ),
         Row(children: [
-          RatingText(offer.customerRating, size: 12),
-          const SizedBox(width: 6),
+          if (offer.customerRating > 0) ...[
+            RatingText(offer.customerRating, size: 12),
+            const SizedBox(width: 6),
+          ],
           Text('Client', style: t.bodySmall),
           const Spacer(),
           Icon(Icons.account_balance_wallet_outlined, size: 16, color: context.wami.orangeStrong),

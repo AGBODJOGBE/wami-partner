@@ -1,5 +1,6 @@
 import 'package:wami_core/wami_core.dart';
 
+import '../../../../shared/session_store.dart';
 import '../../domain/entities/earnings.dart';
 
 abstract interface class EarningsRemoteDataSource {
@@ -9,64 +10,216 @@ abstract interface class EarningsRemoteDataSource {
   Future<Performance> performance();
 }
 
-PartnerWallet _wallet(Map<String, dynamic> j) => PartnerWallet(
-      available: j['available'] as int,
-      cashCommissionDue: j['cash_commission_due'] as int? ?? 0,
-      payoutMethod: j['payout_method'] as String,
-      payoutSchedule: j['payout_schedule'] as String? ?? '',
-      movements: (j['movements'] as List<dynamic>).cast<Map<String, dynamic>>().map((m) {
-        return WalletMovement(label: m['label'] as String, date: DateTime.parse(m['date'] as String), amount: m['amount'] as int);
-      }).toList(),
-    );
+int _int(Object? v) => v is num ? v.round() : 0;
+double _rate(Object? v) {
+  final d = v is num ? v.toDouble() : 0.0;
+  return d > 1 ? d / 100 : d;
+}
 
-/// Endpoints à valider.
+String _movementLabel(Map<String, dynamic> t) => switch (t['type']) {
+      'RIDE_EARNINGS' => 'Course',
+      'B2C_EARNINGS' => 'Livraison',
+      'COMMISSION' => 'Commission WAMI',
+      'B2C_COMMISSION' => 'Commission livraison',
+      'WITHDRAWAL' => 'Retrait Mobile Money',
+      'BONUS_CREDIT' => 'Bonus',
+      'REFERRAL_REWARD' => 'Parrainage',
+      'BONUS_EXPIRY' => 'Bonus expiré',
+      'CANCELLATION_INDEMNITY' => 'Indemnité d’annulation',
+      _ => (t['description'] as String?) ?? 'Mouvement',
+    };
+
+/// Portefeuille et gains via `/api/wallets/:walletId/...` (wallet de type EARNINGS).
+///
+/// Écarts avec le serveur :
+/// - pas de route « gains par période » : les gains sont calculés à partir des transactions ;
+/// - le solde principal peut être négatif (commission des courses en espèces) : il devient
+///   « commission due » et le retrait est bloqué tant qu'il n'est pas couvert ;
+/// - le retrait part toujours sur le numéro Mobile Money du compte ; minimum fixé par l'administration.
 class EarningsApiDataSource implements EarningsRemoteDataSource {
-  const EarningsApiDataSource(this._api);
+  const EarningsApiDataSource(this._api, this._session);
   final ApiClient _api;
+  final SessionStore _session;
+
+  String get _wallet => '/api/wallets/${_session.requireIdentity.walletId}';
+
+  /// Transactions d'une période, toutes pages confondues (100 par page, 10 pages au plus).
+  Future<List<Map<String, dynamic>>> _transactions({DateTime? from, DateTime? to, int max = 1000}) async {
+    final all = <Map<String, dynamic>>[];
+    var offset = 0;
+    while (offset < max) {
+      final j = await _api.get('$_wallet/transactions', query: {
+        'limit': 100,
+        'offset': offset,
+        if (from != null) 'from': from.toUtc().toIso8601String(),
+        if (to != null) 'to': to.toUtc().toIso8601String(),
+      });
+      final page = ((j['transactions'] as List<dynamic>?) ?? const []).cast<Map<String, dynamic>>();
+      all.addAll(page);
+      offset += 100;
+      if (page.length < 100 || offset >= _int(j['total'])) break;
+    }
+    return all;
+  }
+
+  static const _missionTypes = {'RIDE_EARNINGS', 'B2C_EARNINGS'};
+  static const _bonusTypes = {'BONUS_CREDIT', 'REFERRAL_REWARD'};
+  static const _commissionTypes = {'COMMISSION', 'B2C_COMMISSION'};
+
+  /// Montant net d'une transaction pour les gains (0 si elle n'en fait pas partie).
+  int _earned(Map<String, dynamic> t) {
+    if (t['status'] != 'COMPLETED') return 0;
+    final type = t['type'];
+    final amount = _int(t['amount']);
+    if (_missionTypes.contains(type) || _bonusTypes.contains(type)) return t['direction'] == 'DEBIT' ? -amount : amount;
+    if (_commissionTypes.contains(type)) return t['direction'] == 'CREDIT' ? amount : -amount;
+    return 0;
+  }
 
   @override
   Future<EarningsSummary> earnings(EarningsPeriod period) async {
-    final j = await _api.get('/v1/partner/earnings', query: {'period': period.name});
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    late DateTime start;
+    late DateTime previousStart;
+    late int buckets;
+    late List<String> labels;
+    late String range;
+    switch (period) {
+      case EarningsPeriod.day:
+        start = today;
+        previousStart = today.subtract(const Duration(days: 1));
+        buckets = 6;
+        labels = ['0 h', '4 h', '8 h', '12 h', '16 h', '20 h'];
+        range = 'Aujourd’hui';
+      case EarningsPeriod.week:
+        start = today.subtract(Duration(days: today.weekday - 1));
+        previousStart = start.subtract(const Duration(days: 7));
+        buckets = 7;
+        labels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+        range = 'Cette semaine';
+      case EarningsPeriod.month:
+        start = DateTime(now.year, now.month);
+        previousStart = DateTime(now.year, now.month - 1);
+        buckets = 4;
+        labels = ['S1', 'S2', 'S3', 'S4'];
+        range = 'Ce mois-ci';
+    }
+    int bucket(DateTime d) {
+      final i = switch (period) {
+        EarningsPeriod.day => d.hour ~/ 4,
+        EarningsPeriod.week => d.weekday - 1,
+        EarningsPeriod.month => (d.day - 1) ~/ 7,
+      };
+      return i.clamp(0, buckets - 1).toInt();
+    }
+
+    final current = await _transactions(from: start, to: now);
+    final previous = await _transactions(from: previousStart, to: start);
+
+    final bars = List<int>.filled(buckets, 0);
+    var missions = 0;
+    var missionCount = 0;
+    var bonus = 0;
+    var commission = 0;
+    for (final t in current) {
+      final v = _earned(t);
+      if (v == 0) continue;
+      final at = DateTime.tryParse('${t['createdAt']}')?.toLocal();
+      if (at != null) bars[bucket(at)] += v;
+      final type = t['type'];
+      if (_missionTypes.contains(type)) {
+        missions += v;
+        missionCount++;
+      } else if (_bonusTypes.contains(type)) {
+        bonus += v;
+      } else {
+        commission += v;
+      }
+    }
+    final previousTotal = previous.fold<int>(0, (sum, t) => sum + _earned(t));
     return EarningsSummary(
       period: period,
-      rangeLabel: j['range_label'] as String,
-      total: j['total'] as int,
-      previousTotal: j['previous_total'] as int? ?? 0,
-      bars: (j['bars'] as List<dynamic>).cast<int>(),
-      barLabels: (j['bar_labels'] as List<dynamic>).cast<String>(),
-      lines: (j['lines'] as List<dynamic>)
-          .cast<Map<String, dynamic>>()
-          .map((l) => EarningLine(l['label'] as String, l['amount'] as int))
-          .toList(),
+      rangeLabel: range,
+      total: missions + bonus + commission,
+      previousTotal: previousTotal,
+      bars: bars,
+      barLabels: labels,
+      lines: [
+        EarningLine('Missions ($missionCount)', missions),
+        if (bonus != 0) EarningLine('Bonus', bonus),
+        if (commission != 0) EarningLine('Commission WAMI', commission),
+      ],
+    );
+  }
+
+  Future<PartnerWallet> _snapshot() async {
+    final b = await _api.get('$_wallet/balance');
+    final t = await _api.get('$_wallet/transactions', query: {'limit': 20, 'offset': 0});
+    final main = _int(b['mainBalance']);
+    final movements = ((t['transactions'] as List<dynamic>?) ?? const []).cast<Map<String, dynamic>>().map((m) {
+      final amount = _int(m['amount']);
+      return WalletMovement(
+        label: _movementLabel(m),
+        date: DateTime.tryParse('${m['createdAt']}')?.toLocal() ?? DateTime.now(),
+        amount: m['direction'] == 'DEBIT' ? -amount : amount,
+      );
+    }).toList();
+    return PartnerWallet(
+      available: main < 0 ? 0 : main,
+      cashCommissionDue: main < 0 ? -main : 0,
+      payoutMethod: 'Mobile Money · ${_session.requireIdentity.phone}',
+      payoutSchedule: 'Retrait à la demande, versé sur votre numéro',
+      movements: movements,
     );
   }
 
   @override
-  Future<PartnerWallet> wallet() async => _wallet(await _api.get('/v1/partner/wallet'));
+  Future<PartnerWallet> wallet() => _snapshot();
 
   @override
-  Future<PartnerWallet> withdraw(int amount) async =>
-      _wallet(await _api.post('/v1/partner/wallet/withdrawals', body: {'amount': amount}));
+  Future<PartnerWallet> withdraw(int amount) async {
+    await _api.post('$_wallet/withdraw', body: {
+      'amount': amount,
+      'method': 'MOBILE_MONEY',
+      'recipientDetails': {'phone': _session.requireIdentity.phone},
+    });
+    return _snapshot();
+  }
 
   @override
   Future<Performance> performance() async {
-    final j = await _api.get('/v1/partner/performance');
+    final stats = await _api.get('/api/drivers/stats');
+    var done = 0;
+    var target = 0;
+    var bonus = 0;
+    var level = 'Standard';
+    var hint = '';
+    try {
+      final a = await _api.get('/api/driver/bonus/activity/progress');
+      done = _int(a['ridesToday']);
+      target = done + _int(a['ridesRemainingToNextTier']);
+      bonus = _int(a['estimatedBonusToday']);
+      level = (a['currentTierName'] as String?) ?? level;
+      final next = a['nextTierName'] as String?;
+      if (next != null) hint = 'Palier « $next » dans ${_int(a['ridesRemainingToNextTier'])} mission(s)';
+    } on Exception {
+      // Bonus d'activité désactivé ou indisponible : la performance reste affichée.
+    }
     return Performance(
-      rating: (j['rating'] as num).toDouble(),
-      acceptanceRate: (j['acceptance_rate'] as num).toDouble(),
-      cancellationRate: (j['cancellation_rate'] as num).toDouble(),
-      goalTarget: j['goal_target'] as int,
-      goalDone: j['goal_done'] as int,
-      goalBonus: j['goal_bonus'] as int,
-      level: j['level'] as String,
-      nextLevelHint: j['next_level_hint'] as String? ?? '',
-      tags: (j['tags'] as Map<String, dynamic>).map((k, v) => MapEntry(k, v as int)),
-      lastReview: j['last_review'] as String?,
+      rating: (stats['averageRating'] as num?)?.toDouble() ?? 0,
+      acceptanceRate: _rate(stats['acceptanceRate']),
+      cancellationRate: _rate(stats['cancellationRate']),
+      goalTarget: target,
+      goalDone: done,
+      goalBonus: bonus,
+      level: level,
+      nextLevelHint: hint,
+      tags: const {},
     );
   }
 }
 
-/// Données d'exemple.
 class EarningsFakeDataSource implements EarningsRemoteDataSource {
   EarningsFakeDataSource(this._fake);
   final FakeBackend _fake;

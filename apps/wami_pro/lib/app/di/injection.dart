@@ -5,6 +5,21 @@ import '../../features/account/data/repositories/account_repository_impl.dart';
 import '../../features/account/domain/repositories/account_repository.dart';
 import '../../features/account/domain/usecases/account_usecases.dart';
 import '../../features/account/presentation/cubit/account_cubit.dart';
+import '../../features/bonus/data/datasources/bonus_data_sources.dart';
+import '../../features/bonus/data/repositories/bonus_repository_impl.dart';
+import '../../features/bonus/domain/repositories/bonus_repository.dart';
+import '../../features/bonus/domain/usecases/bonus_usecases.dart';
+import '../../features/bonus/presentation/cubit/bonus_cubit.dart';
+import '../../features/contract/data/datasources/contract_data_sources.dart';
+import '../../features/contract/data/repositories/contract_repository_impl.dart';
+import '../../features/contract/domain/repositories/contract_repository.dart';
+import '../../features/contract/domain/usecases/contract_usecases.dart';
+import '../../features/contract/presentation/cubit/contract_cubit.dart';
+import '../../features/notifications/data/datasources/notifications_data_sources.dart';
+import '../../features/notifications/data/repositories/notifications_repository_impl.dart';
+import '../../features/notifications/domain/repositories/notifications_repository.dart';
+import '../../features/notifications/domain/usecases/notifications_usecases.dart';
+import '../../features/notifications/presentation/cubit/notifications_cubit.dart';
 import '../../features/earnings/data/datasources/earnings_data_sources.dart';
 import '../../features/earnings/data/repositories/earnings_repository_impl.dart';
 import '../../features/earnings/domain/repositories/earnings_repository.dart';
@@ -20,6 +35,9 @@ import '../../features/onboarding/data/repositories/onboarding_repository_impl.d
 import '../../features/onboarding/domain/repositories/onboarding_repository.dart';
 import '../../features/onboarding/domain/usecases/onboarding_usecases.dart';
 import '../../features/onboarding/presentation/cubit/onboarding_cubit.dart';
+import '../../shared/location_service.dart';
+import '../../shared/realtime_client.dart';
+import '../../shared/session_store.dart';
 import '../session/session_cubit.dart';
 
 /// Racine de composition de WAMI Pro.
@@ -28,14 +46,22 @@ Future<void> configureDependencies(AppConfig config) async {
   sl
     ..registerSingleton<AppConfig>(config)
     ..registerLazySingleton(AuthInterceptor.new)
-    ..registerLazySingleton(() => ApiClient(sl(), sl()))
-    ..registerLazySingleton(() => FakeBackend(sl()));
+    // Le serveur enveloppe ses succès dans {success, data}.
+    ..registerLazySingleton(() => ApiClient(sl(), sl(), unwrapEnvelope: true))
+    ..registerLazySingleton(() => FakeBackend(sl()))
+    ..registerLazySingleton(() => SessionStore(sl()))
+    ..registerLazySingleton(LocationService.new)
+    ..registerLazySingleton(() => RealtimeClient(sl(), sl()));
+  sl<SessionStore>().onCleared = sl<RealtimeClient>().disconnect;
 
   final fake = config.useFakeBackend;
   _onboarding(fake);
   _missions(fake);
   _earnings(fake);
   _account(fake);
+  _bonus(fake);
+  _contract(fake);
+  _notifications(fake);
 }
 
 void _onboarding(bool fake) {
@@ -48,6 +74,9 @@ void _onboarding(bool fake) {
     ..registerLazySingleton(() => RequestOtp(sl()))
     ..registerLazySingleton(() => VerifyOtp(sl()))
     ..registerLazySingleton(() => RegisterPartner(sl()))
+    ..registerLazySingleton(() => LoginPartner(sl()))
+    ..registerLazySingleton(() => RequestPasswordReset(sl()))
+    ..registerLazySingleton(() => ResetPassword(sl()))
     ..registerLazySingleton(() => GetDocuments(sl()))
     ..registerLazySingleton(() => UploadDocument(sl()))
     ..registerLazySingleton(() => SubmitForReview(sl()))
@@ -60,6 +89,9 @@ void _onboarding(bool fake) {
         requestOtp: sl(),
         verifyOtp: sl(),
         register: sl(),
+        login: sl(),
+        requestReset: sl(),
+        resetPassword: sl(),
         getDocuments: sl(),
         upload: sl(),
         submit: sl(),
@@ -72,13 +104,15 @@ void _onboarding(bool fake) {
 void _missions(bool fake) {
   sl
     ..registerLazySingleton<MissionsRemoteDataSource>(
-      () => fake ? MissionsFakeDataSource(sl()) : MissionsApiDataSource(sl()),
+      () => fake ? MissionsFakeDataSource(sl()) : MissionsApiDataSource(sl(), sl(), sl(), sl()),
     )
     ..registerLazySingleton<MissionsRepository>(() => MissionsRepositoryImpl(sl()))
     ..registerLazySingleton(() => GetDriverDay(sl()))
     ..registerLazySingleton(() => GetFarePolicy(sl()))
     ..registerLazySingleton(() => SetOnline(sl()))
     ..registerLazySingleton(() => WatchOffers(sl()))
+    ..registerLazySingleton(() => GetCurrentMission(sl()))
+    ..registerLazySingleton(() => WatchCancellations(sl()))
     ..registerLazySingleton(() => AcceptMission(sl()))
     ..registerLazySingleton(() => DeclineMission(sl()))
     ..registerLazySingleton(() => MarkArrived(sl()))
@@ -94,6 +128,8 @@ void _missions(bool fake) {
         getPolicy: sl(),
         setOnline: sl(),
         watchOffers: sl(),
+        currentMission: sl(),
+        watchCancellations: sl(),
         accept: sl(),
         decline: sl(),
         arrived: sl(),
@@ -110,7 +146,7 @@ void _missions(bool fake) {
 void _earnings(bool fake) {
   sl
     ..registerLazySingleton<EarningsRemoteDataSource>(
-      () => fake ? EarningsFakeDataSource(sl()) : EarningsApiDataSource(sl()),
+      () => fake ? EarningsFakeDataSource(sl()) : EarningsApiDataSource(sl(), sl()),
     )
     ..registerLazySingleton<EarningsRepository>(() => EarningsRepositoryImpl(sl()))
     ..registerLazySingleton(() => GetEarnings(sl()))
@@ -125,10 +161,40 @@ void _earnings(bool fake) {
 void _account(bool fake) {
   sl
     ..registerLazySingleton<AccountRemoteDataSource>(
-      () => fake ? AccountFakeDataSource(sl()) : AccountApiDataSource(sl()),
+      () => fake ? AccountFakeDataSource(sl()) : AccountApiDataSource(sl(), sl()),
     )
     ..registerLazySingleton<AccountRepository>(() => AccountRepositoryImpl(sl()))
     ..registerLazySingleton(() => GetPartnerAccount(sl()))
     ..registerLazySingleton(() => SavePreferences(sl()))
-    ..registerFactory(() => AccountCubit(sl(), sl()));
+    ..registerLazySingleton(() => ChangePassword(sl()))
+    ..registerFactory(() => AccountCubit(sl(), sl()))
+    ..registerFactory(() => PasswordCubit(sl()));
+}
+
+void _bonus(bool fake) {
+  sl
+    ..registerLazySingleton<BonusRemoteDataSource>(() => fake ? BonusFakeDataSource(sl()) : BonusApiDataSource(sl(), sl()))
+    ..registerLazySingleton<BonusRepository>(() => BonusRepositoryImpl(sl()))
+    ..registerLazySingleton(() => GetBonusOverview(sl()))
+    ..registerLazySingleton(() => ConsolidateBonus(sl()))
+    ..registerFactory(() => BonusCubit(sl(), sl()));
+}
+
+void _contract(bool fake) {
+  sl
+    ..registerLazySingleton<ContractRemoteDataSource>(() => fake ? ContractFakeDataSource(sl()) : ContractApiDataSource(sl()))
+    ..registerLazySingleton<ContractRepository>(() => ContractRepositoryImpl(sl()))
+    ..registerLazySingleton(() => GetContract(sl()))
+    ..registerFactory(() => ContractCubit(sl()));
+}
+
+void _notifications(bool fake) {
+  sl
+    ..registerLazySingleton<NotificationsRemoteDataSource>(
+      () => fake ? NotificationsFakeDataSource(sl()) : NotificationsApiDataSource(sl()),
+    )
+    ..registerLazySingleton<NotificationsRepository>(() => NotificationsRepositoryImpl(sl()))
+    ..registerLazySingleton(() => GetNotifications(sl()))
+    ..registerLazySingleton(() => MarkNotificationRead(sl()))
+    ..registerFactory(() => NotificationsCubit(sl(), sl()));
 }

@@ -7,6 +7,12 @@ import 'package:wami_core/wami_core.dart';
 
 import '../../features/account/presentation/cubit/account_cubit.dart';
 import '../../features/account/presentation/pages/account_page.dart';
+import '../../features/bonus/presentation/cubit/bonus_cubit.dart';
+import '../../features/bonus/presentation/pages/bonus_page.dart';
+import '../../features/contract/presentation/cubit/contract_cubit.dart';
+import '../../features/contract/presentation/pages/contract_page.dart';
+import '../../features/notifications/presentation/cubit/notifications_cubit.dart';
+import '../../features/notifications/presentation/pages/notifications_page.dart';
 import '../../features/earnings/presentation/cubit/earnings_cubits.dart';
 import '../../features/earnings/presentation/pages/earnings_pages.dart';
 import '../../features/missions/presentation/pages/active_mission_page.dart';
@@ -14,6 +20,7 @@ import '../../features/missions/presentation/pages/handover_and_summary_pages.da
 import '../../features/missions/presentation/pages/missions_home_page.dart';
 import '../../features/onboarding/domain/entities/partner.dart';
 import '../../features/onboarding/presentation/cubit/onboarding_cubit.dart';
+import '../../features/onboarding/presentation/pages/auth_pages.dart';
 import '../../features/onboarding/presentation/pages/onboarding_pages.dart';
 import '../../shared/routes.dart';
 import '../session/session_cubit.dart';
@@ -31,6 +38,13 @@ class AppRouter {
   final SessionCubit _session;
   final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
   static const _splash = '/splash';
+  static const _signedOutPages = {
+    ProRoutes.welcome,
+    ProRoutes.code,
+    ProRoutes.register,
+    ProRoutes.login,
+    ProRoutes.forgot,
+  };
 
   late final GoRouter config = GoRouter(
     navigatorKey: _rootKey,
@@ -49,6 +63,9 @@ class AppRouter {
             builder: (_, __) => const WelcomePage(),
             routes: [
               GoRoute(path: 'code', builder: (_, __) => OtpPage(onRegistered: _session.markOnboarding)),
+              GoRoute(path: 'profile', builder: (_, __) => RegisterProfilePage(onRegistered: _session.load)),
+              GoRoute(path: 'login', builder: (_, __) => LoginPage(onLoggedIn: _session.load)),
+              GoRoute(path: 'forgot', builder: (_, __) => const ForgotPasswordPage()),
               GoRoute(
                 path: 'documents',
                 builder: (_, __) => const DocumentsPage(),
@@ -107,6 +124,31 @@ class AppRouter {
                 create: (_) => sl<AccountCubit>()..load(),
                 child: AccountPage(onLogout: _session.logout),
               ),
+              routes: [
+                GoRoute(
+                  path: 'notifications',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(
+                    create: (_) => sl<NotificationsCubit>()..load(),
+                    child: const NotificationsPage(),
+                  ),
+                ),
+                GoRoute(
+                  path: 'bonus',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<BonusCubit>()..load(), child: const BonusPage()),
+                ),
+                GoRoute(
+                  path: 'contract',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<ContractCubit>()..load(), child: const ContractPage()),
+                ),
+                GoRoute(
+                  path: 'password',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<PasswordCubit>(), child: const ChangePasswordPage()),
+                ),
+              ],
             ),
           ]),
         ],
@@ -131,7 +173,7 @@ class AppRouter {
       case SessionPhase.unknown:
         return loc == _splash ? null : _splash;
       case SessionPhase.signedOut:
-        return (loc == ProRoutes.welcome || loc == ProRoutes.code) ? null : ProRoutes.welcome;
+        return _signedOutPages.contains(loc) ? null : ProRoutes.welcome;
       case SessionPhase.onboarding:
         return inOnboarding && loc != ProRoutes.welcome ? null : ProRoutes.documents;
       case SessionPhase.review:
