@@ -15,7 +15,7 @@ L'application client vit dans **son propre dépôt** et n'est pas concernée ici
 
 ---
 
-## Trois règles pour durer
+## Quatre règles pour durer
 
 Vous êtes seul sur le projet : ces règles évitent qu'un changement d'une app casse l'autre
 et que le socle devienne un fourre-tout.
@@ -43,6 +43,64 @@ et que le socle devienne un fourre-tout.
    Son propre `pubspec.yaml`, ses identifiants de store, sa version, sa publication.
    Une feature n'importe jamais une autre feature ni la couche `app/` :
    les liens passent par des callbacks injectés par le routeur (`onLogout`, `onActivated`…).
+
+4. **Aucun plugin natif dans le socle.**
+   Tout ce qui est déclaré dans `packages/wami_core/pubspec.yaml` part dans **les deux** apps.
+   Un paquet en pur Dart (`dio`, `equatable`…) ne coûte rien : le code inutilisé est retiré à la compilation.
+   Un plugin natif (caméra, scan, cartes, localisation, notifications…) embarque son code Android/iOS
+   et ses permissions dans les deux apps, même celle qui ne s'en sert pas.
+   - Une seule app en a besoin → `apps/<app>/pubspec.yaml`, code dans sa feature.
+   - Les deux en ont besoin avec du code commun → un paquet dédié (`packages/wami_maps`…),
+     déclaré uniquement par les apps concernées.
+   - Le script `tool/check_core_deps.sh` refuse tout paquet du socle absent de sa liste autorisée ;
+     il tourne automatiquement sur GitHub (`.github/workflows/core-guard.yml`) à chaque modification
+     du `pubspec.yaml` du socle.
+
+---
+
+## Permissions et stores
+
+Objectif : chaque app ne demande **que** ses propres permissions, pour qu'aucune ne soit
+bloquée à la revue Google Play ou App Store à cause de l'autre.
+
+**Où elles sont déclarées** : uniquement dans chaque app, jamais dans le socle.
+
+| | Android | iOS |
+|---|---|---|
+| WAMI Pro | `apps/wami_pro/android/app/src/main/AndroidManifest.xml` | `apps/wami_pro/ios/Runner/Info.plist` |
+| WAMI Business | `apps/wami_business/android/app/src/main/AndroidManifest.xml` | `apps/wami_business/ios/Runner/Info.plist` |
+
+**Permissions prévues** (à valider au moment d'ajouter les plugins) :
+
+| Permission | Pro | Business | Pourquoi |
+|---|---|---|---|
+| Localisation au premier plan | oui | non | suivre la course, recevoir les offres proches |
+| Localisation en arrière-plan | à valider | non | suivi écran éteint ; très contrôlé par Google Play (vidéo de justification exigée) — préférer un service de premier plan |
+| Caméra | oui | oui | Pro : pièces, photo du colis · Business : scan des codes, photos de plats |
+| Notifications | oui | oui | offres, commandes, réservations |
+| Contacts, micro, SMS, stockage complet | non | non | à ne jamais ajouter sans besoin réel : motif fréquent de refus |
+
+Appeler ou écrire au client par `tel:` / `sms:` n'exige **aucune** permission.
+
+**Pièges connus**
+- *Android — fusion des manifestes* : chaque plugin ajoute ses permissions au manifeste final.
+  Avant chaque publication, vérifiez le manifeste fusionné (Android Studio → `AndroidManifest.xml`
+  → onglet *Merged Manifest*) et retirez ce qui ne sert pas :
+  ```xml
+  <manifest xmlns:tools="http://schemas.android.com/tools" …>
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+  ```
+- *iOS — textes d'usage* : toute permission utilisée doit avoir son texte (`NSCameraUsageDescription`,
+  `NSLocationWhenInUseUsageDescription`…) dans l'`Info.plist` de l'app, sinon l'envoi est refusé.
+  À l'inverse, n'ajoutez pas de texte pour une permission que l'app n'utilise pas.
+- *iOS — `permission_handler`* : si vous l'utilisez, désactivez dans le `Podfile` **de chaque app**
+  les permissions qu'elle n'utilise pas (macros `PERMISSION_…=0`), sinon Apple peut demander
+  des justifications pour des API que l'app ne sert jamais.
+- *Formulaires des stores* : la fiche « Sécurité des données » (Google) et les « Détails de
+  confidentialité » (Apple) se remplissent **app par app**, d'après ses propres permissions.
+
+**Avant chaque publication** : manifeste fusionné relu · `Info.plist` relu · fiche des données
+à jour · `./tool/check_core_deps.sh` au vert.
 
 ---
 

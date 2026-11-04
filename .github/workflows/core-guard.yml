@@ -1,0 +1,20 @@
+# Bloque toute dépendance non autorisée dans le socle (règle 4 du README).
+# Ne demande pas Flutter : quelques secondes par exécution.
+name: Garde-fou du socle
+
+on:
+  push:
+    paths:
+      - 'packages/wami_core/pubspec.yaml'
+      - 'tool/check_core_deps.sh'
+  pull_request:
+    paths:
+      - 'packages/wami_core/pubspec.yaml'
+      - 'tool/check_core_deps.sh'
+
+jobs:
+  core-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tool/check_core_deps.sh
