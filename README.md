@@ -173,12 +173,19 @@ Plus : avis clients avec réponse, équipe (rôles propriétaire / gérant / emp
 
 Prérequis : Flutter ≥ 3.27 (Dart ≥ 3.6).
 
-Les dossiers `android/` et `ios/` ne sont pas inclus. Générez-les une fois dans chaque app :
+Les dossiers `android/` et `ios/` ne sont pas inclus.
+
+**WAMI Pro** : un script les génère et y déclare les permissions de Pro (localisation y compris en arrière-plan,
+service de premier plan, caméra, notifications ; textes d'usage et mode arrière-plan iOS) :
 
 ```bash
-cd apps/wami_pro
-flutter create --org bj.wami --project-name wami_pro --platforms android,ios .
-cd ../wami_business
+./tool/setup_pro_platform.sh
+```
+
+**WAMI Business** : génération simple, sans permission de localisation :
+
+```bash
+cd apps/wami_business
 flutter create --org bj.wami --project-name wami_business --platforms android,ios .
 ```
 

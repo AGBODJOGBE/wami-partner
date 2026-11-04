@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:geolocator/geolocator.dart' show Position;
 import 'package:wami_core/wami_core.dart';
 
 import '../../../../shared/location_service.dart';
@@ -70,8 +71,10 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
   ActiveMission? _current;
   String? _vehicleId;
 
-  Timer? _heartbeat;
-  Timer? _gpsTimer;
+  StreamSubscription<Position>? _posSub;
+  bool _presence = false;
+  DateTime _lastBeat = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastGps = DateTime.fromMillisecondsSinceEpoch(0);
   String? _trackedId;
   LatLng? _prev;
   double _meters = 0;
@@ -141,23 +144,41 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
     return d.copyWith(online: online, onlineSince: online ? DateTime.now() : null);
   }
 
-  /// Socket + battement de présence (le serveur oublie le chauffeur après 90 s sans signal).
+  /// Socket + suivi de position. Le flux de positions (service de premier plan) sert à la fois
+  /// de battement de présence (le serveur oublie le chauffeur après 90 s sans signal) et au GPS
+  /// de mission : il continue écran éteint, ce qu'un minuteur ne ferait pas.
   void _startPresence() {
+    _presence = true;
     _rt.connect();
     _listenRequests();
-    _heartbeat ??= Timer.periodic(const Duration(seconds: 30), (_) => _beat());
-    _beat();
+    _startStream();
   }
 
-  Future<void> _beat() async {
+  void _startStream() {
+    _posSub ??= _loc.track().listen(_onFix, onError: (_) {});
+  }
+
+  void _onFix(Position fix) {
     if (_session.identity == null) return _stopPresence();
-    final pos = await _loc.current();
-    if (pos != null) _rt.heartbeat(pos.lat, pos.lng);
+    final now = DateTime.now();
+    if (now.difference(_lastBeat).inSeconds >= 30) {
+      _lastBeat = now;
+      _rt.heartbeat(fix.latitude, fix.longitude);
+    }
+    final tracked = _trackedId;
+    if (tracked == null || now.difference(_lastGps).inMilliseconds < 3000) return;
+    _lastGps = now;
+    final here = (lat: fix.latitude, lng: fix.longitude);
+    final prev = _prev;
+    if (prev != null && _current?.stage == MissionStage.inProgress) _meters += haversineMeters(prev, here);
+    _prev = here;
+    _rt.gps(tracked, lat: fix.latitude, lng: fix.longitude, heading: fix.heading, speed: fix.speed, accuracy: fix.accuracy);
   }
 
   void _stopPresence() {
-    _heartbeat?.cancel();
-    _heartbeat = null;
+    _presence = false;
+    _posSub?.cancel();
+    _posSub = null;
     _rideSub?.cancel();
     _deliverySub?.cancel();
     _rideSub = _deliverySub = null;
@@ -189,10 +210,15 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
     yield* _offerSink.stream;
   }
 
-  Stop _stop(Object? j, String fallback, {String? contact}) {
+  Stop _stop(Object? j, String fallback, {String? contact, String? phone}) {
     final m = j is Map ? j : const {};
     final a = (m['address'] as String?)?.trim() ?? '';
-    return Stop(label: a.isEmpty ? fallback : a, address: '', contactName: contact);
+    return Stop(
+      label: a.isEmpty ? fallback : a,
+      address: '',
+      contactName: contact ?? m['contactName'] as String?,
+      contactPhone: phone ?? m['contactPhone'] as String?,
+    );
   }
 
   MissionOffer? _rideOffer(Map<String, dynamic> m) {
@@ -302,7 +328,11 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
           customerName: 'Client',
           customerRating: 0,
         );
-    return name.isEmpty ? offer : offer.copyWith(customerName: name);
+    final phone = p['phoneNumber'] as String?;
+    return offer.copyWith(
+      customerName: name.isEmpty ? null : name,
+      pickup: phone == null ? null : Stop(label: offer.pickup.label, address: offer.pickup.address, contactName: name, contactPhone: phone),
+    );
   }
 
   /// Relit la course sur le serveur : étape, heures d'arrivée, de départ et durée des pauses.
@@ -329,8 +359,8 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
       _rt.joinOrder(id);
       final recipient = j['recipient'] is Map ? j['recipient'] as Map : const {};
       final offer = (base ?? _offerFromOrder(j, id)).copyWith(
-        pickup: _stop(j['pickup'], 'Point de collecte', contact: (j['pickup'] as Map?)?['contactName'] as String?),
-        dropoff: _stop(j['dropoff'], 'Destinataire', contact: recipient['name'] as String?),
+        pickup: _stop(j['pickup'], 'Point de collecte'),
+        dropoff: _stop(j['dropoff'], 'Destinataire', contact: recipient['name'] as String?, phone: recipient['phone'] as String?),
         parcelSize: _parcelSize(j['parcel']),
         fragile: (j['parcel'] as Map?)?['type'] == 'FRAGILE',
       );
@@ -534,7 +564,7 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
       _kinds[id] = MissionKind.parcel;
       final recipient = j['recipient'] is Map ? j['recipient'] as Map : const {};
       final offer = _offerFromOrder(j, id).copyWith(
-        dropoff: _stop(j['dropoff'], 'Destinataire', contact: recipient['name'] as String?),
+        dropoff: _stop(j['dropoff'], 'Destinataire', contact: recipient['name'] as String?, phone: recipient['phone'] as String?),
         parcelSize: _parcelSize(j['parcel']),
       );
       _rt.connect();
@@ -566,27 +596,19 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
   // ── Suivi GPS pendant une mission ──
 
   void _startTracking(String id) {
-    _stopTracking();
     _trackedId = id;
     _meters = 0;
     _prev = null;
-    _gpsTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
-      if (_session.identity == null) return _stopTracking();
-      final fix = await _loc.currentFix();
-      final tracked = _trackedId;
-      if (fix == null || tracked == null) return;
-      final here = (lat: fix.latitude, lng: fix.longitude);
-      final prev = _prev;
-      if (prev != null && _current?.stage == MissionStage.inProgress) _meters += haversineMeters(prev, here);
-      _prev = here;
-      _rt.gps(tracked, lat: fix.latitude, lng: fix.longitude, heading: fix.heading, speed: fix.speed, accuracy: fix.accuracy);
-    });
+    _startStream(); // reprise d'une mission sans être passé « en ligne » dans cette session
   }
 
   void _stopTracking() {
-    _gpsTimer?.cancel();
-    _gpsTimer = null;
     _trackedId = null;
+    if (!_presence) {
+      // Mission reprise hors ligne : plus rien à suivre, on libère le service de premier plan.
+      _posSub?.cancel();
+      _posSub = null;
+    }
   }
 }
 

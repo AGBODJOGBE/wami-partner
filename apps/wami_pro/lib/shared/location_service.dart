@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 typedef LatLng = ({double lat, double lng});
@@ -29,16 +30,57 @@ class LocationService {
     }
   }
 
-  /// Position complète pour le suivi de course (cap, vitesse, précision).
-  Future<Position?> currentFix() async {
-    try {
-      final p = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 5)),
-      );
+  /// Flux de positions qui continue écran éteint : service de premier plan avec notification
+  /// permanente sur Android, indicateur de localisation en arrière-plan sur iOS.
+  Stream<Position> track() {
+    return Geolocator.getPositionStream(locationSettings: _trackingSettings()).map((p) {
       _last = (lat: p.latitude, lng: p.longitude);
       return p;
+    });
+  }
+
+  LocationSettings _trackingSettings() {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+          intervalDuration: const Duration(seconds: 3),
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationTitle: 'WAMI Pro',
+            notificationText: 'Position utilisée pour vos missions',
+            enableWakeLock: true,
+            setOngoing: true,
+          ),
+        );
+      case TargetPlatform.iOS:
+        return AppleSettings(
+          accuracy: LocationAccuracy.high,
+          activityType: ActivityType.automotiveNavigation,
+          distanceFilter: 5,
+          pauseLocationUpdatesAutomatically: false,
+          showBackgroundLocationIndicator: true,
+          allowBackgroundLocationUpdates: true,
+        );
+      default:
+        return const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5);
+    }
+  }
+
+  /// `true` si la localisation « toujours » est déjà accordée.
+  Future<bool> hasBackgroundPermission() async => (await Geolocator.checkPermission()) == LocationPermission.always;
+
+  /// Demande la localisation en arrière-plan, en deux temps comme l'exigent Android et iOS
+  /// (d'abord « pendant l'utilisation », puis « toujours »). Ne bloque jamais : sans « toujours »,
+  /// le suivi continue tant que l'app reste ouverte ou que son service de premier plan tourne.
+  Future<bool> requestBackgroundPermission() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.whileInUse) perm = await Geolocator.requestPermission();
+      return perm == LocationPermission.always;
     } catch (_) {
-      return null;
+      return false;
     }
   }
 }

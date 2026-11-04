@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wami_core/wami_core.dart';
 
+import '../../../../shared/contact.dart';
 import '../../../../shared/photo_picker.dart';
 import '../../../../shared/routes.dart';
 import '../../domain/entities/fare.dart';
@@ -89,8 +90,8 @@ class ActiveMissionPage extends StatelessWidget {
             GlassCard(child: Text('« ${o.pickup.note} »', style: Theme.of(context).textTheme.bodyMedium)),
           CustomerDock(
             name: o.pickup.contactName ?? o.customerName,
-            onMessage: () => soon('Messagerie'),
-            onCall: () => soon('Appel masqué'),
+            onMessage: () => Contact.message(context, o.pickup.contactPhone),
+            onCall: () => Contact.call(context, o.pickup.contactPhone),
           ),
           WamiPrimaryButton(
             label: switch (o.kind) {
@@ -106,7 +107,7 @@ class ActiveMissionPage extends StatelessWidget {
 
       case MissionStage.atPickup:
         if (o.kind.isDelivery) return [_PickupPanel(mission: m, busy: s.busy)];
-        return [_RideStartPanel(waited: m.waitedSeconds(s.now), policy: s.policy, name: o.customerName, busy: s.busy)];
+        return [_RideStartPanel(waited: m.waitedSeconds(s.now), policy: s.policy, name: o.customerName, phone: o.pickup.contactPhone, busy: s.busy)];
 
       case MissionStage.inProgress:
       case MissionStage.paused:
@@ -175,10 +176,11 @@ class ActiveMissionPage extends StatelessWidget {
 
 /// Course : compteur d'attente puis démarrage (le serveur n'exige pas de code du client).
 class _RideStartPanel extends StatefulWidget {
-  const _RideStartPanel({required this.waited, required this.policy, required this.name, required this.busy});
+  const _RideStartPanel({required this.waited, required this.policy, required this.name, required this.phone, required this.busy});
   final int waited;
   final FarePolicy policy;
   final String name;
+  final String? phone;
   final bool busy;
 
   @override
@@ -193,7 +195,11 @@ class _RideStartPanelState extends State<_RideStartPanel> {
       children: [
         WaitingRing(waited: widget.waited, policy: widget.policy),
         const SizedBox(height: 12),
-        CustomerDock(name: widget.name, onMessage: () {}, onCall: () {}),
+        CustomerDock(
+          name: widget.name,
+          onMessage: () => Contact.message(context, widget.phone),
+          onCall: () => Contact.call(context, widget.phone),
+        ),
         const SizedBox(height: 12),
         if (widget.waited >= widget.policy.noShowCancelSeconds)
           TextButton(onPressed: () {}, child: const Text('Client absent : annuler avec frais (à valider)')),

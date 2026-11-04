@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wami_core/wami_core.dart';
 
+import '../../../../shared/background_location_disclosure.dart';
 import '../../../../shared/routes.dart';
 import '../bloc/missions_bloc.dart';
 import '../widgets/mission_widgets.dart';
@@ -86,7 +87,15 @@ class MissionsHomePage extends StatelessWidget {
                         )
                       : WamiSheet(
                           children: [
-                            Center(child: PowerButton(online: day.online, onTap: () => bloc.add(const OnlineToggled()))),
+                            Center(
+                              child: PowerButton(
+                                online: day.online,
+                                onTap: () async {
+                                  if (!day.online) await BackgroundLocationDisclosure.show(context);
+                                  if (context.mounted) bloc.add(const OnlineToggled());
+                                },
+                              ),
+                            ),
                             const SizedBox(height: 4),
                             if (day.online)
                               Text('Les demandes proches de vous vont arriver ici.',

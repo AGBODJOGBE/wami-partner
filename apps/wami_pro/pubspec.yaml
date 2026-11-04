@@ -22,6 +22,7 @@ dependencies:
   geolocator: ^13.0.2              # position (statut en ligne, suivi de course)
   image_picker: ^1.1.2             # pièces, photos de colis
   socket_io_client: ^3.0.2         # offres et suivi en temps réel (pur Dart)
+  url_launcher: ^6.3.1             # appel et SMS vers le client
 
 dev_dependencies:
   flutter_test:

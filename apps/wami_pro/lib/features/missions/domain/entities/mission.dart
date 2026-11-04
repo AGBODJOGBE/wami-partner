@@ -21,14 +21,17 @@ enum PaymentMode {
 }
 
 class Stop extends Equatable {
-  const Stop({required this.label, required this.address, this.contactName, this.note});
+  const Stop({required this.label, required this.address, this.contactName, this.contactPhone, this.note});
   final String label;
   final String address;
   final String? contactName;
+
+  /// Numéro à appeler (client pour une course, expéditeur ou destinataire pour une livraison).
+  final String? contactPhone;
   final String? note;
 
   @override
-  List<Object?> get props => [label, address, contactName, note];
+  List<Object?> get props => [label, address, contactName, contactPhone, note];
 }
 
 /// Mission proposée au partenaire, à accepter dans le délai imparti.
