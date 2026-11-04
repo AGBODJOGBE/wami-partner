@@ -83,6 +83,35 @@ class MissionOffer extends Equatable {
   /// Délai pour accepter (à valider : 15 s proposé).
   final int acceptSeconds;
 
+  MissionOffer copyWith({
+    Stop? pickup,
+    Stop? dropoff,
+    String? customerName,
+    String? parcelSize,
+    bool? fragile,
+  }) {
+    return MissionOffer(
+      id: id,
+      kind: kind,
+      pickup: pickup ?? this.pickup,
+      dropoff: dropoff ?? this.dropoff,
+      distanceToPickupKm: distanceToPickupKm,
+      tripKm: tripKm,
+      tripMinutes: tripMinutes,
+      clientPrice: clientPrice,
+      netEarning: netEarning,
+      payment: payment,
+      customerName: customerName ?? this.customerName,
+      customerRating: customerRating,
+      cashToCollect: cashToCollect,
+      parcelSize: parcelSize ?? this.parcelSize,
+      fragile: fragile ?? this.fragile,
+      orderNumber: orderNumber,
+      items: items,
+      acceptSeconds: acceptSeconds,
+    );
+  }
+
   @override
   List<Object?> get props => [
         id, kind, pickup, dropoff, distanceToPickupKm, tripKm, tripMinutes, clientPrice, netEarning,

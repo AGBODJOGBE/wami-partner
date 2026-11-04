@@ -38,33 +38,101 @@ class VerifyOtpParams {
   final String code;
 }
 
-class VerifyOtp implements UseCase<PartnerSession, VerifyOtpParams> {
+/// Vérifie le code SMS (6 chiffres). Ne crée pas de session : le compte est créé ensuite.
+class VerifyOtp implements UseCase<void, VerifyOtpParams> {
   const VerifyOtp(this._repo);
   final OnboardingRepository _repo;
 
   @override
-  Future<Result<PartnerSession>> call(VerifyOtpParams p) async {
-    if (!RegExp(r'^\d{4}$').hasMatch(p.code)) {
-      return const Err(ValidationFailure('Le code contient 4 chiffres.'));
+  Future<Result<void>> call(VerifyOtpParams p) async {
+    if (!RegExp(r'^\d{6}$').hasMatch(p.code)) {
+      return const Err(ValidationFailure('Le code contient 6 chiffres.'));
     }
     return _repo.verifyCode(phone: normalizePhone(p.phone), code: p.code);
   }
 }
 
-class RegisterParams {
-  const RegisterParams({required this.activities, required this.vehicle});
-  final Set<PartnerActivity> activities;
-  final VehicleType vehicle;
+/// Règle du serveur : 8 caractères minimum, une majuscule, une minuscule, un chiffre.
+String? passwordProblem(String p) {
+  if (p.length < 8 || !RegExp('[A-Z]').hasMatch(p) || !RegExp('[a-z]').hasMatch(p) || !RegExp(r'\d').hasMatch(p)) {
+    return 'Mot de passe : 8 caractères minimum, avec une majuscule, une minuscule et un chiffre.';
+  }
+  return null;
 }
 
-class RegisterPartner implements UseCase<void, RegisterParams> {
+class RegisterPartner implements UseCase<PartnerSession, RegistrationForm> {
   const RegisterPartner(this._repo);
   final OnboardingRepository _repo;
 
   @override
-  Future<Result<void>> call(RegisterParams p) async {
-    if (p.activities.isEmpty) return const Err(ValidationFailure('Choisissez au moins une activité.'));
-    return _repo.register(activities: p.activities, vehicle: p.vehicle);
+  Future<Result<PartnerSession>> call(RegistrationForm f) async {
+    if (f.activities.isEmpty) return const Err(ValidationFailure('Choisissez au moins une activité.'));
+    if (f.firstName.trim().isEmpty || f.lastName.trim().isEmpty) {
+      return const Err(ValidationFailure('Indiquez votre nom et votre prénom.'));
+    }
+    final problem = passwordProblem(f.password);
+    if (problem != null) return Err(ValidationFailure(problem));
+    if (f.make.trim().isEmpty || f.model.trim().isEmpty || f.color.trim().isEmpty || f.plate.trim().isEmpty) {
+      return const Err(ValidationFailure('Renseignez la marque, le modèle, la couleur et la plaque du véhicule.'));
+    }
+    final year = DateTime.now().year;
+    if (f.year < 1990 || f.year > year + 1) return const Err(ValidationFailure('Année du véhicule invalide.'));
+    return _repo.register(f);
+  }
+}
+
+class LoginParams {
+  const LoginParams({required this.phone, required this.password});
+  final String phone;
+  final String password;
+}
+
+class LoginPartner implements UseCase<PartnerSession, LoginParams> {
+  const LoginPartner(this._repo);
+  final OnboardingRepository _repo;
+
+  @override
+  Future<Result<PartnerSession>> call(LoginParams p) async {
+    final digits = normalizePhone(p.phone);
+    if (!isValidBeninPhone(digits)) {
+      return const Err(ValidationFailure('Numéro invalide : 10 chiffres commençant par 01.'));
+    }
+    if (p.password.isEmpty) return const Err(ValidationFailure('Saisissez votre mot de passe.'));
+    return _repo.login(phone: digits, password: p.password);
+  }
+}
+
+class RequestPasswordReset implements UseCase<void, String> {
+  const RequestPasswordReset(this._repo);
+  final OnboardingRepository _repo;
+
+  @override
+  Future<Result<void>> call(String phone) async {
+    final digits = normalizePhone(phone);
+    if (!isValidBeninPhone(digits)) {
+      return const Err(ValidationFailure('Numéro invalide : 10 chiffres commençant par 01.'));
+    }
+    return _repo.requestPasswordReset(digits);
+  }
+}
+
+class ResetPasswordParams {
+  const ResetPasswordParams({required this.phone, required this.code, required this.newPassword});
+  final String phone;
+  final String code;
+  final String newPassword;
+}
+
+class ResetPassword implements UseCase<void, ResetPasswordParams> {
+  const ResetPassword(this._repo);
+  final OnboardingRepository _repo;
+
+  @override
+  Future<Result<void>> call(ResetPasswordParams p) async {
+    if (p.code.trim().isEmpty) return const Err(ValidationFailure('Saisissez le code reçu par SMS.'));
+    final problem = passwordProblem(p.newPassword);
+    if (problem != null) return Err(ValidationFailure(problem));
+    return _repo.resetPassword(phone: normalizePhone(p.phone), code: p.code.trim(), newPassword: p.newPassword);
   }
 }
 
@@ -76,12 +144,18 @@ class GetDocuments implements UseCase<List<PartnerDocument>, NoParams> {
   Future<Result<List<PartnerDocument>>> call(NoParams _) => _repo.getDocuments();
 }
 
-class UploadDocument implements UseCase<PartnerDocument, DocumentType> {
+class UploadParams {
+  const UploadParams({required this.type, required this.filePath});
+  final DocumentType type;
+  final String filePath;
+}
+
+class UploadDocument implements UseCase<PartnerDocument, UploadParams> {
   const UploadDocument(this._repo);
   final OnboardingRepository _repo;
 
   @override
-  Future<Result<PartnerDocument>> call(DocumentType type) => _repo.uploadDocument(type);
+  Future<Result<PartnerDocument>> call(UploadParams p) => _repo.uploadDocument(p.type, p.filePath);
 }
 
 /// Règle : on ne soumet le dossier que si aucune pièce n'est manquante ou refusée.

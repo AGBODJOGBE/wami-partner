@@ -22,6 +22,12 @@ class MissionsRepositoryImpl implements MissionsRepository {
   Stream<MissionOffer> offers() => _remote.offers();
 
   @override
+  Future<Result<ActiveMission?>> currentMission() => guard(_remote.currentMission);
+
+  @override
+  Stream<String> cancellations() => _remote.cancellations();
+
+  @override
   Future<Result<ActiveMission>> accept(String offerId) => guard(() => _remote.accept(offerId));
 
   @override
@@ -41,15 +47,20 @@ class MissionsRepositoryImpl implements MissionsRepository {
   Future<Result<ActiveMission>> resume(String missionId) => guard(() => _remote.resume(missionId));
 
   @override
-  Future<Result<ActiveMission>> confirmPickup(String missionId, {required bool photoTaken}) =>
-      guard(() => _remote.confirmPickup(missionId, photoTaken));
+  Future<Result<ActiveMission>> confirmPickup(String missionId, {required bool photoTaken, String? photoPath}) =>
+      guard(() => _remote.confirmPickup(missionId, photoTaken, photoPath));
 
   @override
   Future<Result<MissionReceipt>> complete(String missionId) => guard(() => _remote.complete(missionId));
 
   @override
-  Future<Result<MissionReceipt>> handover(String missionId, {required String code, required PaymentMode collectedWith}) =>
-      guard(() => _remote.handover(missionId, code, collectedWith));
+  Future<Result<MissionReceipt>> handover(
+    String missionId, {
+    required String code,
+    required PaymentMode collectedWith,
+    String? photoPath,
+  }) =>
+      guard(() => _remote.handover(missionId, code, collectedWith, photoPath));
 
   @override
   Future<Result<void>> rateCustomer(String missionId, int stars) => guard(() => _remote.rate(missionId, stars));

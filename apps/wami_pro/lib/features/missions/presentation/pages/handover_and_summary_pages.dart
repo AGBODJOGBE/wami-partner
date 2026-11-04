@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wami_core/wami_core.dart';
 
+import '../../../../shared/photo_picker.dart';
 import '../../../../shared/routes.dart';
 import '../../domain/entities/mission.dart';
 import '../bloc/missions_bloc.dart';
@@ -17,6 +18,7 @@ class HandoverPage extends StatefulWidget {
 
 class _HandoverPageState extends State<HandoverPage> {
   String _code = '';
+  String? _photoPath;
   PaymentMode _mode = PaymentMode.cash;
 
   @override
@@ -37,9 +39,21 @@ class _HandoverPageState extends State<HandoverPage> {
           body: Gap(
             children: [
               const Center(child: SectionLabel('Code de remise du destinataire')),
-              CodeInput(onChanged: (v) => setState(() => _code = v)),
-              Text('Le destinataire a reçu ce code par SMS. Il prouve la livraison.',
+              CodeInput(length: 6, onChanged: (v) => setState(() => _code = v)),
+              Text('Le destinataire a reçu ce code à 6 chiffres par SMS. Il prouve la livraison.',
                   textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
+              GlassGroup(children: [
+                ListRow(
+                  title: _photoPath != null ? 'Photo de remise prise' : 'Photo de remise',
+                  subtitle: 'Obligatoire pour clore la livraison',
+                  icon: _photoPath != null ? Icons.check_circle_rounded : Icons.photo_camera_outlined,
+                  iconColor: _photoPath != null ? WamiColors.success : null,
+                  onTap: () async {
+                    final path = await PhotoPicker.camera();
+                    if (path != null) setState(() => _photoPath = path);
+                  },
+                ),
+              ]),
               if (o.cashToCollect > 0)
                 GlassCard(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -68,8 +82,10 @@ class _HandoverPageState extends State<HandoverPage> {
             label: 'Confirmer la remise',
             icon: Icons.check_rounded,
             loading: s.busy,
-            onPressed: _code.length == 4
-                ? () => context.read<MissionsBloc>().add(HandoverConfirmed(code: _code, collectedWith: _mode))
+            onPressed: _code.length == 6 && _photoPath != null
+                ? () => context.read<MissionsBloc>().add(
+                      HandoverConfirmed(code: _code, collectedWith: _mode, photoPath: _photoPath),
+                    )
                 : null,
           ),
         );

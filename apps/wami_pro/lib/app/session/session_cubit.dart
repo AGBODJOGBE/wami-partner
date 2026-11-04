@@ -40,4 +40,10 @@ class SessionCubit extends Cubit<SessionState> {
     await _logout(const NoParams());
     emit(const SessionState(phase: SessionPhase.signedOut));
   }
+
+  /// Le serveur a refusé le jeton (expiré, ou session ouverte sur un autre appareil).
+  Future<void> expire() async {
+    if (state.phase == SessionPhase.signedOut) return;
+    await logout();
+  }
 }

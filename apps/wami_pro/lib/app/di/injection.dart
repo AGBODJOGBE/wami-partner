@@ -20,6 +20,9 @@ import '../../features/onboarding/data/repositories/onboarding_repository_impl.d
 import '../../features/onboarding/domain/repositories/onboarding_repository.dart';
 import '../../features/onboarding/domain/usecases/onboarding_usecases.dart';
 import '../../features/onboarding/presentation/cubit/onboarding_cubit.dart';
+import '../../shared/location_service.dart';
+import '../../shared/realtime_client.dart';
+import '../../shared/session_store.dart';
 import '../session/session_cubit.dart';
 
 /// Racine de composition de WAMI Pro.
@@ -28,8 +31,13 @@ Future<void> configureDependencies(AppConfig config) async {
   sl
     ..registerSingleton<AppConfig>(config)
     ..registerLazySingleton(AuthInterceptor.new)
-    ..registerLazySingleton(() => ApiClient(sl(), sl()))
-    ..registerLazySingleton(() => FakeBackend(sl()));
+    // Le serveur enveloppe ses succès dans {success, data}.
+    ..registerLazySingleton(() => ApiClient(sl(), sl(), unwrapEnvelope: true))
+    ..registerLazySingleton(() => FakeBackend(sl()))
+    ..registerLazySingleton(() => SessionStore(sl()))
+    ..registerLazySingleton(LocationService.new)
+    ..registerLazySingleton(() => RealtimeClient(sl(), sl()));
+  sl<SessionStore>().onCleared = sl<RealtimeClient>().disconnect;
 
   final fake = config.useFakeBackend;
   _onboarding(fake);
@@ -48,6 +56,9 @@ void _onboarding(bool fake) {
     ..registerLazySingleton(() => RequestOtp(sl()))
     ..registerLazySingleton(() => VerifyOtp(sl()))
     ..registerLazySingleton(() => RegisterPartner(sl()))
+    ..registerLazySingleton(() => LoginPartner(sl()))
+    ..registerLazySingleton(() => RequestPasswordReset(sl()))
+    ..registerLazySingleton(() => ResetPassword(sl()))
     ..registerLazySingleton(() => GetDocuments(sl()))
     ..registerLazySingleton(() => UploadDocument(sl()))
     ..registerLazySingleton(() => SubmitForReview(sl()))
@@ -60,6 +71,9 @@ void _onboarding(bool fake) {
         requestOtp: sl(),
         verifyOtp: sl(),
         register: sl(),
+        login: sl(),
+        requestReset: sl(),
+        resetPassword: sl(),
         getDocuments: sl(),
         upload: sl(),
         submit: sl(),
@@ -72,13 +86,15 @@ void _onboarding(bool fake) {
 void _missions(bool fake) {
   sl
     ..registerLazySingleton<MissionsRemoteDataSource>(
-      () => fake ? MissionsFakeDataSource(sl()) : MissionsApiDataSource(sl()),
+      () => fake ? MissionsFakeDataSource(sl()) : MissionsApiDataSource(sl(), sl(), sl(), sl()),
     )
     ..registerLazySingleton<MissionsRepository>(() => MissionsRepositoryImpl(sl()))
     ..registerLazySingleton(() => GetDriverDay(sl()))
     ..registerLazySingleton(() => GetFarePolicy(sl()))
     ..registerLazySingleton(() => SetOnline(sl()))
     ..registerLazySingleton(() => WatchOffers(sl()))
+    ..registerLazySingleton(() => GetCurrentMission(sl()))
+    ..registerLazySingleton(() => WatchCancellations(sl()))
     ..registerLazySingleton(() => AcceptMission(sl()))
     ..registerLazySingleton(() => DeclineMission(sl()))
     ..registerLazySingleton(() => MarkArrived(sl()))
@@ -94,6 +110,8 @@ void _missions(bool fake) {
         getPolicy: sl(),
         setOnline: sl(),
         watchOffers: sl(),
+        currentMission: sl(),
+        watchCancellations: sl(),
         accept: sl(),
         decline: sl(),
         arrived: sl(),

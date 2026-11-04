@@ -16,6 +16,7 @@ class WamiTextField extends StatelessWidget {
     this.autofocus = false,
     this.label,
     this.initialValue,
+    this.obscureText = false,
   });
 
   final String hint;
@@ -28,11 +29,13 @@ class WamiTextField extends StatelessWidget {
   final bool autofocus;
   final String? label;
   final String? initialValue;
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
     final p = context.wami;
     return TextFormField(
+      obscureText: obscureText,
       controller: controller,
       initialValue: controller == null ? initialValue : null,
       autofocus: autofocus,

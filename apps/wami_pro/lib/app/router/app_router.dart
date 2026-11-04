@@ -14,6 +14,7 @@ import '../../features/missions/presentation/pages/handover_and_summary_pages.da
 import '../../features/missions/presentation/pages/missions_home_page.dart';
 import '../../features/onboarding/domain/entities/partner.dart';
 import '../../features/onboarding/presentation/cubit/onboarding_cubit.dart';
+import '../../features/onboarding/presentation/pages/auth_pages.dart';
 import '../../features/onboarding/presentation/pages/onboarding_pages.dart';
 import '../../shared/routes.dart';
 import '../session/session_cubit.dart';
@@ -31,6 +32,13 @@ class AppRouter {
   final SessionCubit _session;
   final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
   static const _splash = '/splash';
+  static const _signedOutPages = {
+    ProRoutes.welcome,
+    ProRoutes.code,
+    ProRoutes.register,
+    ProRoutes.login,
+    ProRoutes.forgot,
+  };
 
   late final GoRouter config = GoRouter(
     navigatorKey: _rootKey,
@@ -49,6 +57,9 @@ class AppRouter {
             builder: (_, __) => const WelcomePage(),
             routes: [
               GoRoute(path: 'code', builder: (_, __) => OtpPage(onRegistered: _session.markOnboarding)),
+              GoRoute(path: 'profile', builder: (_, __) => RegisterProfilePage(onRegistered: _session.load)),
+              GoRoute(path: 'login', builder: (_, __) => LoginPage(onLoggedIn: _session.load)),
+              GoRoute(path: 'forgot', builder: (_, __) => const ForgotPasswordPage()),
               GoRoute(
                 path: 'documents',
                 builder: (_, __) => const DocumentsPage(),
@@ -131,7 +142,7 @@ class AppRouter {
       case SessionPhase.unknown:
         return loc == _splash ? null : _splash;
       case SessionPhase.signedOut:
-        return (loc == ProRoutes.welcome || loc == ProRoutes.code) ? null : ProRoutes.welcome;
+        return _signedOutPages.contains(loc) ? null : ProRoutes.welcome;
       case SessionPhase.onboarding:
         return inOnboarding && loc != ProRoutes.welcome ? null : ProRoutes.documents;
       case SessionPhase.review:

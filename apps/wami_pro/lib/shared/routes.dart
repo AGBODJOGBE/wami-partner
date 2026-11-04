@@ -4,6 +4,9 @@ abstract final class ProRoutes {
   // Inscription.
   static const welcome = '/welcome';
   static const code = '/welcome/code';
+  static const register = '/welcome/profile';
+  static const login = '/welcome/login';
+  static const forgot = '/welcome/forgot';
   static const documents = '/welcome/documents';
   static const capture = '/welcome/documents/capture';
   static const status = '/welcome/status';
