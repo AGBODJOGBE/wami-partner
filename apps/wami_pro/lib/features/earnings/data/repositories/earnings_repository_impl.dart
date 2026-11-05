@@ -19,4 +19,8 @@ class EarningsRepositoryImpl implements EarningsRepository {
 
   @override
   Future<Result<Performance>> getPerformance() => guard(_remote.performance);
+
+  @override
+  Future<Result<TransferReceipt>> transfer({required String phone, required int amount, String? note}) =>
+      guard(() => _remote.transfer(phone, amount, note));
 }

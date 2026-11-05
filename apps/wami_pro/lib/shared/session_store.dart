@@ -44,6 +44,9 @@ class SessionStore {
 
   DriverIdentity? get identity => _identity;
 
+  /// Véhicule actif connu (changé depuis l'écran Véhicules) ; `null` = à relire sur le serveur.
+  String? activeVehicleId;
+
   static const _keys = ['token', 'userId', 'driverId', 'walletId', 'phone', 'firstName', 'lastName', 'driverType'];
 
   Future<DriverIdentity?> restore() async {
@@ -89,6 +92,7 @@ class SessionStore {
 
   Future<void> clear() async {
     _identity = null;
+    activeVehicleId = null;
     _auth.updateToken(null);
     onCleared?.call();
     try {

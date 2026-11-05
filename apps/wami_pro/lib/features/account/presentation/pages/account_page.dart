@@ -88,6 +88,11 @@ class AccountPage extends StatelessWidget {
                       ]),
                       const SizedBox(height: 14),
                       GlassGroup(children: [
+                        ListRow(title: 'Mon profil', icon: Icons.person_outline_rounded, onTap: () => context.push(ProRoutes.profile)),
+                        ListRow(title: 'Mes véhicules', icon: Icons.directions_car_outlined, onTap: () => context.push(ProRoutes.vehicles)),
+                        ListRow(title: 'Historique', icon: Icons.history_rounded, onTap: () => context.push(ProRoutes.history)),
+                        ListRow(title: 'Trajets programmés', icon: Icons.alt_route_rounded, onTap: () => context.push(ProRoutes.intercity)),
+                        ListRow(title: 'Parrainage', icon: Icons.group_add_outlined, onTap: () => context.push(ProRoutes.referrals)),
                         ListRow(title: 'Notifications', icon: Icons.notifications_none_rounded, onTap: () => context.push(ProRoutes.notifications)),
                         ListRow(title: 'Bonus', icon: Icons.card_giftcard_rounded, onTap: () => context.push(ProRoutes.bonus)),
                         ListRow(title: 'Mon contrat de véhicule', icon: Icons.assignment_outlined, onTap: () => context.push(ProRoutes.contract)),

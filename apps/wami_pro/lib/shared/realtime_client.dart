@@ -27,6 +27,21 @@ class RealtimeClient {
 
   bool get connected => _socket?.connected ?? false;
 
+  final _extra = <String, StreamController<dynamic>>{};
+
+  /// Flux d'un événement quelconque (chat, changement de destination, densité…).
+  /// Branché sur le socket dès qu'il est ouvert, même si l'écoute commence avant `connect()`.
+  Stream<dynamic> on(String event) {
+    final existing = _extra[event];
+    if (existing != null) return existing.stream;
+    final sink = StreamController<dynamic>.broadcast();
+    _extra[event] = sink;
+    _socket?.on(event, sink.add);
+    return sink.stream;
+  }
+
+  void emit(String event, [dynamic data]) => _socket?.emit(event, data);
+
   void connect() {
     final token = _session.identity?.token;
     if (token == null || _socket != null) return;
@@ -43,6 +58,9 @@ class RealtimeClient {
     forward('ride:new_request', _rideRequests);
     forward('delivery_b2c:new_request', _deliveryRequests);
     forward('ride:cancelled', _cancelled);
+    for (final e in _extra.entries) {
+      socket.on(e.key, e.value.add);
+    }
     _socket = socket;
   }
 

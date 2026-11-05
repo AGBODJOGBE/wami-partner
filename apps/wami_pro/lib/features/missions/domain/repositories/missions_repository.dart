@@ -42,4 +42,24 @@ abstract interface class MissionsRepository {
   });
 
   Future<Result<void>> rateCustomer(String missionId, int stars);
+
+  /// Annulation par le chauffeur (course : en route, arrivé ou en pause ; livraison : avant la collecte).
+  Future<Result<void>> cancel(String missionId, {String? reason});
+
+  /// Client absent, après le délai d'attente.
+  Future<Result<void>> declareNoShow(String missionId, {String? reason});
+
+  /// Échec de collecte ou de remise d'une livraison (motif libre).
+  Future<Result<ActiveMission>> reportFailure(String missionId, String reason);
+  Future<Result<ActiveMission>> startReturn(String missionId);
+  Future<Result<void>> completeReturn(String missionId);
+
+  Stream<DestinationChange> destinationChanges();
+  Future<Result<ActiveMission>> answerDestination(String missionId, {required bool accept, String? reason});
+
+  /// Zone de forte demande la plus proche (texte prêt à afficher), `null` si aucune.
+  Stream<String?> hotZones();
+
+  Future<Result<DirectEstimate>> estimateDirect(DirectRideRequest request);
+  Future<Result<ActiveMission>> startDirect(DirectRideRequest request);
 }

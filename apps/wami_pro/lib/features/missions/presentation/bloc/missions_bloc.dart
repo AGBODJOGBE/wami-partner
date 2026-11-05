@@ -29,6 +29,62 @@ final class MissionsReset extends MissionsEvent {
   const MissionsReset();
 }
 
+/// Le chauffeur annule la mission en cours (motif facultatif).
+final class CancelRequested extends MissionsEvent {
+  const CancelRequested([this.reason]);
+  final String? reason;
+  @override
+  List<Object?> get props => [reason];
+}
+
+final class NoShowRequested extends MissionsEvent {
+  const NoShowRequested();
+}
+
+final class FailureReported extends MissionsEvent {
+  const FailureReported(this.reason);
+  final String reason;
+  @override
+  List<Object?> get props => [reason];
+}
+
+final class ReturnStarted extends MissionsEvent {
+  const ReturnStarted();
+}
+
+final class ReturnCompleted extends MissionsEvent {
+  const ReturnCompleted();
+}
+
+final class DestinationAnswered extends MissionsEvent {
+  const DestinationAnswered({required this.accept});
+  final bool accept;
+  @override
+  List<Object?> get props => [accept];
+}
+
+/// Une course démarrée directement par le chauffeur (déjà créée côté serveur).
+final class DirectRideBegan extends MissionsEvent {
+  const DirectRideBegan(this.mission);
+  final ActiveMission mission;
+  @override
+  List<Object?> get props => [mission];
+}
+
+final class _DestinationRequested extends MissionsEvent {
+  const _DestinationRequested(this.change);
+  final DestinationChange change;
+  @override
+  List<Object?> get props => [change];
+}
+
+final class _HotZone extends MissionsEvent {
+  const _HotZone(this.label);
+  final String? label;
+  @override
+  List<Object?> get props => [label];
+}
+
 final class _Cancelled extends MissionsEvent {
   const _Cancelled(this.missionId);
   final String missionId;
@@ -114,6 +170,7 @@ class MissionsState extends Equatable {
     this.active,
     DateTime? now,
     this.receipt,
+    this.destinationChange,
     this.busy = false,
     this.failure,
   }) : now = now ?? DateTime.now();
@@ -130,6 +187,9 @@ class MissionsState extends Equatable {
 
   /// Récapitulatif de la dernière mission terminée.
   final MissionReceipt? receipt;
+
+  /// Demande de changement de destination en attente de réponse.
+  final DestinationChange? destinationChange;
   final bool busy;
   final Failure? failure;
 
@@ -150,6 +210,8 @@ class MissionsState extends Equatable {
     DateTime? now,
     MissionReceipt? receipt,
     bool clearReceipt = false,
+    DestinationChange? destinationChange,
+    bool clearDestinationChange = false,
     bool? busy,
     Failure? failure,
   }) {
@@ -162,13 +224,14 @@ class MissionsState extends Equatable {
       active: clearActive ? null : (active ?? this.active),
       now: now ?? this.now,
       receipt: clearReceipt ? null : (receipt ?? this.receipt),
+      destinationChange: clearDestinationChange ? null : (destinationChange ?? this.destinationChange),
       busy: busy ?? this.busy,
       failure: failure,
     );
   }
 
   @override
-  List<Object?> get props => [status, day, policy, offer, offerRemaining, active, now, receipt, busy, failure];
+  List<Object?> get props => [status, day, policy, offer, offerRemaining, active, now, receipt, destinationChange, busy, failure];
 }
 
 // ─── Bloc ────────────────────────────────────────────────────────────────────
@@ -182,6 +245,14 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
     required WatchOffers watchOffers,
     required GetCurrentMission currentMission,
     required WatchCancellations watchCancellations,
+    required CancelMission cancel,
+    required DeclareNoShow noShow,
+    required ReportDeliveryFailure reportFailure,
+    required StartReturn startReturn,
+    required CompleteReturn completeReturn,
+    required WatchDestinationChanges watchDestinationChanges,
+    required AnswerDestinationChange answerDestination,
+    required WatchHotZones watchHotZones,
     required AcceptMission accept,
     required DeclineMission decline,
     required MarkArrived arrived,
@@ -197,6 +268,14 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
         _watchOffers = watchOffers,
         _currentMission = currentMission,
         _watchCancellations = watchCancellations,
+        _cancel = cancel,
+        _noShow = noShow,
+        _reportFailure = reportFailure,
+        _startReturn = startReturn,
+        _completeReturn = completeReturn,
+        _watchDestinationChanges = watchDestinationChanges,
+        _answerDestination = answerDestination,
+        _watchHotZones = watchHotZones,
         _accept = accept,
         _decline = decline,
         _arrived = arrived,
@@ -211,6 +290,18 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
     on<OnlineToggled>(_onOnline);
     on<MissionsReset>(_onReset);
     on<_Cancelled>(_onCancelled);
+    on<CancelRequested>((e, emit) => _closeMission(emit, (m) => _cancel(CancelParams(missionId: m.offer.id, reason: e.reason))));
+    on<NoShowRequested>((e, emit) => _closeMission(emit, (m) => _noShow(m.offer.id)));
+    on<ReturnCompleted>((e, emit) => _closeMission(emit, (m) => _completeReturn(m.offer.id)));
+    on<FailureReported>((e, emit) => _runMission(emit, (m) => _reportFailure(FailureParams(missionId: m.offer.id, reason: e.reason))));
+    on<ReturnStarted>((e, emit) => _runMission(emit, (m) => _startReturn(m.offer.id)));
+    on<DestinationAnswered>(_onDestinationAnswered);
+    on<DirectRideBegan>((e, emit) => emit(state.copyWith(active: e.mission, clearReceipt: true, now: DateTime.now())));
+    on<_DestinationRequested>((e, emit) => emit(state.copyWith(destinationChange: e.change)));
+    on<_HotZone>((e, emit) {
+      final d = state.day;
+      if (d != null) emit(state.copyWith(day: e.label == null ? d.copyWith(clearHotZone: true) : d.copyWith(hotZone: e.label)));
+    });
     on<_OfferArrived>(_onOffer);
     on<_Ticked>(_onTick);
     on<OfferAccepted>(_onAccept);
@@ -240,6 +331,14 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
   final WatchOffers _watchOffers;
   final GetCurrentMission _currentMission;
   final WatchCancellations _watchCancellations;
+  final CancelMission _cancel;
+  final DeclareNoShow _noShow;
+  final ReportDeliveryFailure _reportFailure;
+  final StartReturn _startReturn;
+  final CompleteReturn _completeReturn;
+  final WatchDestinationChanges _watchDestinationChanges;
+  final AnswerDestinationChange _answerDestination;
+  final WatchHotZones _watchHotZones;
   final AcceptMission _accept;
   final DeclineMission _decline;
   final MarkArrived _arrived;
@@ -252,6 +351,8 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
 
   StreamSubscription<MissionOffer>? _offersSub;
   StreamSubscription<String>? _cancelSub;
+  StreamSubscription<DestinationChange>? _destSub;
+  StreamSubscription<String?>? _hotSub;
   Timer? _ticker;
 
   Future<void> _onStarted(MissionsStarted e, Emitter<MissionsState> emit) async {
@@ -266,6 +367,8 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
     ));
     _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) => add(_Ticked(DateTime.now())));
     _cancelSub ??= _watchCancellations(const NoParams()).listen((id) => add(_Cancelled(id)));
+    _destSub ??= _watchDestinationChanges(const NoParams()).listen((c) => add(_DestinationRequested(c)));
+    _hotSub ??= _watchHotZones(const NoParams()).listen((z) => add(_HotZone(z)));
     if (state.online) _listenOffers();
 
     // Reprise d'une mission interrompue (app fermée en cours de course).
@@ -277,7 +380,9 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
   Future<void> _onReset(MissionsReset e, Emitter<MissionsState> emit) async {
     await _offersSub?.cancel();
     await _cancelSub?.cancel();
-    _offersSub = _cancelSub = null;
+    await _destSub?.cancel();
+    await _hotSub?.cancel();
+    _offersSub = _cancelSub = _destSub = _hotSub = null;
     emit(MissionsState());
   }
 
@@ -390,6 +495,31 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
     ));
   }
 
+  /// Action qui met fin à la mission sans reçu (annulation, client absent, retour du colis).
+  Future<void> _closeMission(
+    Emitter<MissionsState> emit,
+    Future<Result<void>> Function(ActiveMission m) action,
+  ) async {
+    final m = state.active;
+    if (m == null || state.busy) return;
+    emit(state.copyWith(busy: true));
+    final r = await action(m);
+    emit(r.isOk
+        ? state.copyWith(busy: false, clearActive: true, clearReceipt: true, clearDestinationChange: true)
+        : state.copyWith(busy: false, failure: r.fold((f) => f, (_) => null)));
+  }
+
+  Future<void> _onDestinationAnswered(DestinationAnswered e, Emitter<MissionsState> emit) async {
+    final m = state.active;
+    if (m == null) return;
+    emit(state.copyWith(clearDestinationChange: true, busy: true));
+    final r = await _answerDestination(AnswerParams(missionId: m.offer.id, accept: e.accept));
+    emit(r.fold(
+      (f) => state.copyWith(busy: false, failure: f),
+      (updated) => state.copyWith(busy: false, active: updated),
+    ));
+  }
+
   Future<void> _onReceiptClosed(ReceiptClosed e, Emitter<MissionsState> emit) async {
     final m = state.active;
     if (m != null) await _rate(RateCustomerParams(missionId: m.offer.id, stars: e.stars));
@@ -401,6 +531,8 @@ class MissionsBloc extends Bloc<MissionsEvent, MissionsState> {
     _ticker?.cancel();
     await _offersSub?.cancel();
     await _cancelSub?.cancel();
+    await _destSub?.cancel();
+    await _hotSub?.cancel();
     return super.close();
   }
 }

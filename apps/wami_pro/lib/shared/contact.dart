@@ -23,4 +23,16 @@ abstract final class Contact {
     }
     if (!ok && context.mounted) showWamiMessage(context, 'Impossible d’ouvrir ${scheme == 'tel' ? 'le téléphone' : 'les messages'}.');
   }
+
+  /// Ouvre un lien (page de téléchargement de la mise à jour).
+  static Future<void> openUrl(BuildContext context, String url) async {
+    final uri = Uri.tryParse(url);
+    var ok = false;
+    try {
+      ok = uri != null && await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      ok = false;
+    }
+    if (!ok && context.mounted) showWamiMessage(context, 'Lien indisponible.');
+  }
 }

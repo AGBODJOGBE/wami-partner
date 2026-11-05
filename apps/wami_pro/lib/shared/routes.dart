@@ -19,6 +19,15 @@ abstract final class ProRoutes {
   static const bonus = '/account/bonus';
   static const contract = '/account/contract';
   static const password = '/account/password';
+  static const history = '/account/history';
+  static const vehicles = '/account/vehicles';
+  static const addVehicle = '/account/vehicles/add';
+  static const referrals = '/account/referrals';
+  static const profile = '/account/profile';
+  static const intercity = '/account/intercity';
+  static const transfer = '/earnings/transfer';
+  static const chat = '/mission/chat';
+  static const directRide = '/missions/direct';
 
   // Mission en cours.
   static const mission = '/mission';

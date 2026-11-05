@@ -180,3 +180,105 @@ class RateCustomer implements UseCase<void, RateCustomerParams> {
     return _repo.rateCustomer(p.missionId, p.stars);
   }
 }
+
+class CancelParams {
+  const CancelParams({required this.missionId, this.reason});
+  final String missionId;
+  final String? reason;
+}
+
+class CancelMission implements UseCase<void, CancelParams> {
+  const CancelMission(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<void>> call(CancelParams p) => _repo.cancel(p.missionId, reason: p.reason);
+}
+
+class DeclareNoShow implements UseCase<void, String> {
+  const DeclareNoShow(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<void>> call(String missionId) => _repo.declareNoShow(missionId, reason: 'Client absent');
+}
+
+class FailureParams {
+  const FailureParams({required this.missionId, required this.reason});
+  final String missionId;
+  final String reason;
+}
+
+/// Le serveur ne valide pas le motif mais le stocke : on l'exige toujours.
+class ReportDeliveryFailure implements UseCase<ActiveMission, FailureParams> {
+  const ReportDeliveryFailure(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<ActiveMission>> call(FailureParams p) async {
+    if (p.reason.trim().length < 3) return const Err(ValidationFailure('Indiquez le motif de l’échec.'));
+    return _repo.reportFailure(p.missionId, p.reason.trim());
+  }
+}
+
+class StartReturn implements UseCase<ActiveMission, String> {
+  const StartReturn(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<ActiveMission>> call(String id) => _repo.startReturn(id);
+}
+
+class CompleteReturn implements UseCase<void, String> {
+  const CompleteReturn(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<void>> call(String id) => _repo.completeReturn(id);
+}
+
+class WatchDestinationChanges implements StreamUseCase<DestinationChange, NoParams> {
+  const WatchDestinationChanges(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Stream<DestinationChange> call(NoParams _) => _repo.destinationChanges();
+}
+
+class AnswerParams {
+  const AnswerParams({required this.missionId, required this.accept});
+  final String missionId;
+  final bool accept;
+}
+
+class AnswerDestinationChange implements UseCase<ActiveMission, AnswerParams> {
+  const AnswerDestinationChange(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<ActiveMission>> call(AnswerParams p) => _repo.answerDestination(p.missionId, accept: p.accept);
+}
+
+class WatchHotZones implements StreamUseCase<String?, NoParams> {
+  const WatchHotZones(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Stream<String?> call(NoParams _) => _repo.hotZones();
+}
+
+class EstimateDirectRide implements UseCase<DirectEstimate, DirectRideRequest> {
+  const EstimateDirectRide(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<DirectEstimate>> call(DirectRideRequest r) => _repo.estimateDirect(r);
+}
+
+class StartDirectRide implements UseCase<ActiveMission, DirectRideRequest> {
+  const StartDirectRide(this._repo);
+  final MissionsRepository _repo;
+
+  @override
+  Future<Result<ActiveMission>> call(DirectRideRequest r) => _repo.startDirect(r);
+}

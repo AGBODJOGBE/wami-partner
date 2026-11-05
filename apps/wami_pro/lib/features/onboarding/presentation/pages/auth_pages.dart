@@ -37,11 +37,12 @@ class _RegisterProfilePageState extends State<RegisterProfilePage> {
   final _year = TextEditingController();
   final _color = TextEditingController();
   final _plate = TextEditingController();
+  final _referral = TextEditingController();
   Gender _gender = Gender.male;
 
   @override
   void dispose() {
-    for (final c in [_first, _last, _password, _make, _model, _year, _color, _plate]) {
+    for (final c in [_first, _last, _password, _make, _model, _year, _color, _plate, _referral]) {
       c.dispose();
     }
     super.dispose();
@@ -62,6 +63,7 @@ class _RegisterProfilePageState extends State<RegisterProfilePage> {
       color: _color.text,
       plate: _plate.text,
       seats: s.vehicle.defaultSeats,
+      referralCode: _referral.text,
     ));
     if (ok && mounted) {
       widget.onRegistered();
@@ -98,6 +100,8 @@ class _RegisterProfilePageState extends State<RegisterProfilePage> {
               WamiTextField(hint: 'Année', controller: _year, keyboardType: TextInputType.number),
               WamiTextField(hint: 'Couleur', controller: _color),
               WamiTextField(hint: 'Plaque d’immatriculation', controller: _plate),
+              const SectionLabel('Parrainage'),
+              WamiTextField(hint: 'Code de parrainage (facultatif)', controller: _referral),
             ],
           ),
           bottom: WamiPrimaryButton(

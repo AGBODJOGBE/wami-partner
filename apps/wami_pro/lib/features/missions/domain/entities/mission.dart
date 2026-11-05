@@ -136,7 +136,13 @@ enum MissionStage {
   paused,
 
   completed,
-  cancelled;
+  cancelled,
+
+  /// Livraison échouée (expéditeur absent, destinataire introuvable…) : retour du colis ou annulation.
+  failed,
+
+  /// Colis en retour vers l'expéditeur.
+  returning;
 
   /// Contact (appel, message) avant le démarrage seulement, comme côté client.
   bool get canContactCustomer => this == toPickup || this == atPickup;
@@ -151,7 +157,11 @@ class ActiveMission extends Equatable {
     this.startedAt,
     this.pausedAt,
     this.pausedBefore = Duration.zero,
+    this.canReturn = false,
   });
+
+  /// Après un échec de livraison : le retour du colis est possible (pas après un échec à la collecte).
+  final bool canReturn;
 
   final MissionOffer offer;
   final MissionStage stage;
@@ -193,6 +203,7 @@ class ActiveMission extends Equatable {
     DateTime? pausedAt,
     bool clearPausedAt = false,
     Duration? pausedBefore,
+    bool? canReturn,
   }) {
     return ActiveMission(
       offer: offer,
@@ -201,11 +212,12 @@ class ActiveMission extends Equatable {
       startedAt: startedAt ?? this.startedAt,
       pausedAt: clearPausedAt ? null : (pausedAt ?? this.pausedAt),
       pausedBefore: pausedBefore ?? this.pausedBefore,
+      canReturn: canReturn ?? this.canReturn,
     );
   }
 
   @override
-  List<Object?> get props => [offer, stage, arrivedAt, startedAt, pausedAt, pausedBefore];
+  List<Object?> get props => [offer, stage, arrivedAt, startedAt, pausedAt, pausedBefore, canReturn];
 }
 
 /// Journée du partenaire.
@@ -230,16 +242,56 @@ class DriverDay extends Equatable {
   /// Zone de forte demande signalée (bonus de zone à valider).
   final String? hotZone;
 
-  DriverDay copyWith({bool? online, DateTime? onlineSince, int? earnings, int? missions}) => DriverDay(
+  DriverDay copyWith({bool? online, DateTime? onlineSince, int? earnings, int? missions, String? hotZone, bool clearHotZone = false}) => DriverDay(
         online: online ?? this.online,
         onlineSince: onlineSince ?? this.onlineSince,
         earnings: earnings ?? this.earnings,
         missions: missions ?? this.missions,
         rating: rating,
         acceptanceRate: acceptanceRate,
-        hotZone: hotZone,
+        hotZone: clearHotZone ? null : (hotZone ?? this.hotZone),
       );
 
   @override
   List<Object?> get props => [online, onlineSince, earnings, missions, rating, acceptanceRate, hotZone];
+}
+
+/// Demande du passager de changer la destination en cours de course (60 s pour répondre).
+class DestinationChange extends Equatable {
+  const DestinationChange({required this.rideId, required this.address, this.expiresInSeconds = 60});
+  final String rideId;
+  final String address;
+  final int expiresInSeconds;
+
+  @override
+  List<Object?> get props => [rideId, address, expiresInSeconds];
+}
+
+/// Course prise directement dans la rue (client sans l'app) : départ à ma position.
+class DirectRideRequest extends Equatable {
+  const DirectRideRequest({required this.dropoffLabel, required this.dropoffLat, required this.dropoffLng});
+  final String dropoffLabel;
+  final double dropoffLat;
+  final double dropoffLng;
+
+  @override
+  List<Object?> get props => [dropoffLabel, dropoffLat, dropoffLng];
+}
+
+class DirectEstimate extends Equatable {
+  const DirectEstimate({
+    required this.price,
+    required this.minimumFare,
+    required this.distanceKm,
+    required this.durationMin,
+    required this.surgeMultiplier,
+  });
+  final int price;
+  final int minimumFare;
+  final double distanceKm;
+  final int durationMin;
+  final double surgeMultiplier;
+
+  @override
+  List<Object?> get props => [price, minimumFare, distanceKm, durationMin, surgeMultiplier];
 }

@@ -8,6 +8,22 @@ import 'package:wami_core/wami_core.dart';
 import '../../features/account/presentation/cubit/account_cubit.dart';
 import '../../features/account/presentation/pages/account_page.dart';
 import '../../features/bonus/presentation/cubit/bonus_cubit.dart';
+import '../../features/chat/presentation/cubit/chat_cubit.dart';
+import '../../features/chat/presentation/pages/chat_page.dart';
+import '../../features/chat/domain/usecases/chat_usecases.dart';
+import '../../features/history/presentation/cubit/history_cubit.dart';
+import '../../features/history/presentation/pages/history_page.dart';
+import '../../features/intercity/presentation/cubit/intercity_cubit.dart';
+import '../../features/intercity/presentation/pages/intercity_pages.dart';
+import '../../features/missions/presentation/bloc/missions_bloc.dart';
+import '../../features/missions/presentation/cubit/direct_ride_cubit.dart';
+import '../../features/missions/presentation/pages/direct_ride_page.dart';
+import '../../features/profile/presentation/cubit/profile_cubit.dart';
+import '../../features/profile/presentation/pages/profile_page.dart';
+import '../../features/referrals/presentation/cubit/referrals_cubit.dart';
+import '../../features/referrals/presentation/pages/referrals_page.dart';
+import '../../features/vehicles/presentation/cubit/vehicles_cubit.dart';
+import '../../features/vehicles/presentation/pages/vehicles_pages.dart';
 import '../../features/bonus/presentation/pages/bonus_page.dart';
 import '../../features/contract/presentation/cubit/contract_cubit.dart';
 import '../../features/contract/presentation/pages/contract_page.dart';
@@ -107,6 +123,11 @@ class AppRouter {
                   ),
                 ),
                 GoRoute(
+                  path: 'transfer',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<TransferCubit>(), child: const TransferPage()),
+                ),
+                GoRoute(
                   path: 'performance',
                   parentNavigatorKey: _rootKey,
                   builder: (_, __) => BlocProvider(
@@ -144,6 +165,53 @@ class AppRouter {
                   builder: (_, __) => BlocProvider(create: (_) => sl<ContractCubit>()..load(), child: const ContractPage()),
                 ),
                 GoRoute(
+                  path: 'history',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<HistoryCubit>()..load(), child: const HistoryPage()),
+                ),
+                // Les écrans Véhicules partagent un même cubit pour que la liste reste à jour après un ajout.
+                ShellRoute(
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __, child) => BlocProvider(create: (_) => sl<VehiclesCubit>()..load(), child: child),
+                  routes: [
+                    GoRoute(
+                      path: 'vehicles',
+                      builder: (_, __) => const VehiclesPage(),
+                      routes: [GoRoute(path: 'add', builder: (_, __) => const AddVehiclePage())],
+                    ),
+                  ],
+                ),
+                GoRoute(
+                  path: 'referrals',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(create: (_) => sl<ReferralsCubit>()..load(), child: const ReferralsPage()),
+                ),
+                GoRoute(
+                  path: 'profile',
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __) => BlocProvider(
+                    create: (_) => sl<ProfileCubit>()..load(),
+                    child: ProfilePage(onDeleted: _session.expire),
+                  ),
+                ),
+                ShellRoute(
+                  parentNavigatorKey: _rootKey,
+                  builder: (_, __, child) => BlocProvider(create: (_) => sl<IntercityCubit>()..load(), child: child),
+                  routes: [
+                    GoRoute(
+                      path: 'intercity',
+                      builder: (context, __) => IntercityPage(
+                        onNewOffer: () => context.push('${ProRoutes.intercity}/offer'),
+                        onNewRoute: () => context.push('${ProRoutes.intercity}/route'),
+                      ),
+                      routes: [
+                        GoRoute(path: 'offer', builder: (_, __) => const PublishOfferPage()),
+                        GoRoute(path: 'route', builder: (_, __) => const NewRoutePage()),
+                      ],
+                    ),
+                  ],
+                ),
+                GoRoute(
                   path: 'password',
                   parentNavigatorKey: _rootKey,
                   builder: (_, __) => BlocProvider(create: (_) => sl<PasswordCubit>(), child: const ChangePasswordPage()),
@@ -154,6 +222,11 @@ class AppRouter {
         ],
       ),
 
+      GoRoute(
+        path: ProRoutes.directRide,
+        builder: (_, __) => BlocProvider(create: (_) => sl<DirectRideCubit>(), child: const DirectRidePage()),
+      ),
+
       // ── Mission en cours (plein écran) ──
       GoRoute(
         path: ProRoutes.mission,
@@ -161,6 +234,18 @@ class AppRouter {
         routes: [
           GoRoute(path: 'handover', builder: (_, __) => const HandoverPage()),
           GoRoute(path: 'summary', builder: (_, __) => const MissionSummaryPage()),
+          GoRoute(
+            path: 'chat',
+            builder: (context, __) {
+              final m = context.read<MissionsBloc>().state.active;
+              if (m == null) return const Scaffold(body: WamiLoading());
+              final threadId = chatThreadId(missionId: m.offer.id, isDelivery: m.offer.kind.isDelivery);
+              return BlocProvider(
+                create: (_) => sl<ChatCubit>(param1: threadId)..start(),
+                child: ChatPage(title: m.offer.customerName),
+              );
+            },
+          ),
         ],
       ),
     ],

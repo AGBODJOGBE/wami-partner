@@ -26,6 +26,16 @@ abstract interface class MissionsRemoteDataSource {
   Future<MissionReceipt> complete(String id);
   Future<MissionReceipt> handover(String id, String code, PaymentMode collectedWith, String? photoPath);
   Future<void> rate(String id, int stars);
+  Future<void> cancel(String id, String? reason);
+  Future<void> noShow(String id, String? reason);
+  Future<ActiveMission> reportFailure(String id, String reason);
+  Future<ActiveMission> startReturn(String id);
+  Future<void> completeReturn(String id);
+  Stream<DestinationChange> destinationChanges();
+  Future<ActiveMission> answerDestination(String id, bool accept, String? reason);
+  Stream<String?> hotZones();
+  Future<DirectEstimate> estimateDirect(DirectRideRequest r);
+  Future<ActiveMission> startDirect(DirectRideRequest r);
 }
 
 int _int(Object? v) => v is num ? v.round() : 0;
@@ -151,8 +161,40 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
     _presence = true;
     _rt.connect();
     _listenRequests();
+    _listenDensity();
     _startStream();
   }
+
+  // ── Zones de forte demande ──
+
+  final _hotSink = StreamController<String?>.broadcast();
+  StreamSubscription<dynamic>? _densitySub;
+  StreamSubscription<dynamic>? _densityResetSub;
+
+  /// `driver:density:update` toutes les 30 s : cellules d'environ 1 km avec un compteur de chauffeurs.
+  void _listenDensity() {
+    _densitySub ??= _rt.on('driver:density:update').listen((d) {
+      final cells = d is Map && d['cells'] is List ? (d['cells'] as List).whereType<Map>().toList() : <Map>[];
+      if (cells.isEmpty) return _hotSink.add(null);
+      cells.sort((a, b) => _int(b['count']).compareTo(_int(a['count'])));
+      final top = cells.first;
+      final pos = _loc.last;
+      if (pos == null || top['centerLat'] is! num || top['centerLng'] is! num) return _hotSink.add(null);
+      final km = haversineMeters(pos, (lat: _dbl(top['centerLat']), lng: _dbl(top['centerLng']))) / 1000;
+      _hotSink.add('à ${km.toStringAsFixed(1).replaceAll('.', ',')} km');
+    });
+    // Sans réabonnement après un « reset », la carte se fige.
+    _densityResetSub ??= _rt.on('driver:density:reset').listen((d) {
+      final ms = d is Map ? _int(d['resubscribeAfterMs']) : 1000;
+      Future<void>.delayed(Duration(milliseconds: ms < 500 ? 500 : ms), () {
+        if (_presence) _rt.emit('driver:density:subscribe');
+      });
+    });
+    _rt.emit('driver:density:subscribe');
+  }
+
+  @override
+  Stream<String?> hotZones() => _hotSink.stream;
 
   void _startStream() {
     _posSub ??= _loc.track().listen(_onFix, onError: (_) {});
@@ -177,6 +219,11 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
 
   void _stopPresence() {
     _presence = false;
+    _rt.emit('driver:density:unsubscribe');
+    _densitySub?.cancel();
+    _densityResetSub?.cancel();
+    _densitySub = _densityResetSub = null;
+    _hotSink.add(null);
     _posSub?.cancel();
     _posSub = null;
     _rideSub?.cancel();
@@ -286,7 +333,7 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
   // ── Véhicule ──
 
   Future<String> _vehicle() async {
-    final cached = _vehicleId;
+    final cached = _session.activeVehicleId ?? _vehicleId;
     if (cached != null) return cached;
     final p = await _api.get('/api/drivers/profile');
     var id = p['assignedVehicleId'] as String?;
@@ -295,6 +342,7 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
       id = v['id'] as String?;
     }
     if (id == null) throw const BusinessRuleException('no_vehicle', 'Aucun véhicule actif sur votre compte.');
+    _session.activeVehicleId = id;
     return _vehicleId = id;
   }
 
@@ -532,6 +580,141 @@ class MissionsApiDataSource implements MissionsRemoteDataSource {
   Future<void> rate(String id, int stars) async {
     if (_kinds[id] != MissionKind.ride) return; // pas de note du client pour les livraisons
     await _api.post('/api/driver/rides/$id/rating', body: {'score': stars});
+  }
+
+  // ── Annulation, client absent, échecs de livraison ──
+
+  @override
+  Future<void> cancel(String id, String? reason) async {
+    final m = _require(id);
+    final body = {'reason': (reason == null || reason.trim().isEmpty) ? 'Annulé par le chauffeur' : reason.trim()};
+    if (m.offer.kind.isDelivery) {
+      await _api.delete('/api/driver/delivery/$id', body: body);
+    } else {
+      await _api.delete('/api/driver/rides/$id', body: body);
+    }
+    _current = null;
+    _stopTracking();
+  }
+
+  @override
+  Future<void> noShow(String id, String? reason) async {
+    _require(id);
+    await _api.patch('/api/driver/rides/$id/no-show', body: {'reason': reason ?? 'Client absent'});
+    _current = null;
+    _stopTracking();
+  }
+
+  @override
+  Future<ActiveMission> reportFailure(String id, String reason) async {
+    final m = _require(id);
+    if (!m.offer.kind.isDelivery) {
+      throw const BusinessRuleException('not_delivery', 'Un échec ne concerne que les livraisons.');
+    }
+    if (m.stage == MissionStage.atPickup) {
+      await _api.patch('/api/driver/delivery/$id/pickup-failure', body: {'reason': reason});
+      return _current = m.copyWith(stage: MissionStage.failed, canReturn: false);
+    }
+    // L'échec de remise n'est possible qu'une fois « arrivé chez le destinataire ».
+    final order = await _api.get('/api/driver/delivery/$id');
+    if (order['status'] == 'IN_TRANSIT') await _api.patch('/api/driver/delivery/$id/delivery-arrival');
+    await _api.patch('/api/driver/delivery/$id/delivery-failure', body: {'reason': reason});
+    return _current = m.copyWith(stage: MissionStage.failed, canReturn: true);
+  }
+
+  @override
+  Future<ActiveMission> startReturn(String id) async {
+    final m = _require(id);
+    await _api.patch('/api/driver/delivery/$id/start-return');
+    return _current = m.copyWith(stage: MissionStage.returning);
+  }
+
+  @override
+  Future<void> completeReturn(String id) async {
+    _require(id);
+    await _api.patch('/api/driver/delivery/$id/complete-return');
+    _current = null;
+    _stopTracking();
+  }
+
+  // ── Changement de destination ──
+
+  @override
+  Stream<DestinationChange> destinationChanges() => _rt
+      .on('ride:destination_change_request')
+      .where((d) => d is Map && d['rideId'] == _current?.offer.id)
+      .map((d) => DestinationChange(
+            rideId: (d as Map)['rideId'] as String,
+            address: (d['newDropoffAddress'] as String?) ?? 'Nouvelle destination',
+            expiresInSeconds: d['expiresInSeconds'] is num ? _int(d['expiresInSeconds']) : 60,
+          ));
+
+  @override
+  Future<ActiveMission> answerDestination(String id, bool accept, String? reason) async {
+    final m = _require(id);
+    if (!accept) {
+      await _api.patch('/api/driver/rides/$id/destination-change/reject', body: {if (reason != null) 'reason': reason});
+      return m;
+    }
+    final j = await _api.patch('/api/driver/rides/$id/destination-change/accept');
+    final address = (j['newDropoffAddress'] as String?)?.trim();
+    final offer = (address == null || address.isEmpty)
+        ? m.offer
+        : m.offer.copyWith(dropoff: Stop(label: address, address: '', contactName: m.offer.dropoff.contactName));
+    return _current = ActiveMission(
+      offer: offer,
+      stage: m.stage,
+      arrivedAt: m.arrivedAt,
+      startedAt: m.startedAt,
+      pausedAt: m.pausedAt,
+      pausedBefore: m.pausedBefore,
+    );
+  }
+
+  // ── Course directe (client sans l'app) ──
+
+  Future<Map<String, dynamic>> _directBody(DirectRideRequest r, LatLng pos) async => {
+        'vehicleId': await _vehicle(),
+        'paymentMethod': 'CASH', // seul mode accepté par le serveur pour une course directe
+        'pickup': {'latitude': pos.lat, 'longitude': pos.lng, 'address': 'Position du chauffeur'},
+        'dropoff': {'latitude': r.dropoffLat, 'longitude': r.dropoffLng, 'address': r.dropoffLabel},
+      };
+
+  Future<LatLng> _requirePosition() async {
+    final pos = await _loc.current();
+    if (pos == null) throw const BusinessRuleException('no_location', 'Activez la localisation pour continuer.');
+    return pos;
+  }
+
+  @override
+  Future<DirectEstimate> estimateDirect(DirectRideRequest r) async {
+    final pos = await _requirePosition();
+    final j = await _api.post('/api/driver/rides/pickup/estimate', body: {
+      'pickupLat': pos.lat,
+      'pickupLng': pos.lng,
+      'dropoffLat': r.dropoffLat,
+      'dropoffLng': r.dropoffLng,
+      'vehicleId': await _vehicle(),
+    });
+    return DirectEstimate(
+      price: _int(j['estimatedPrice']),
+      minimumFare: _int(j['minimumFare']),
+      distanceKm: _dbl(j['distanceMeters']) / 1000,
+      durationMin: (_dbl(j['durationSeconds']) / 60).ceil(),
+      surgeMultiplier: j['surgeMultiplier'] is num ? _dbl(j['surgeMultiplier']) : 1,
+    );
+  }
+
+  @override
+  Future<ActiveMission> startDirect(DirectRideRequest r) async {
+    final pos = await _requirePosition();
+    final j = await _api.post('/api/driver/rides/pickup', body: await _directBody(r, pos));
+    final id = j['rideId'] as String;
+    _rt.connect();
+    _rt.joinRide(id);
+    final m = await _loadRide(id, null);
+    _startTracking(id);
+    return m;
   }
 
   // ── Reprise et annulation ──
@@ -797,4 +980,71 @@ class MissionsFakeDataSource implements MissionsRemoteDataSource {
 
   @override
   Stream<String> cancellations() => const Stream.empty();
+
+  @override
+  Future<void> cancel(String id, String? reason) async {
+    await _fake.latency(0.4);
+    _active = null;
+  }
+
+  @override
+  Future<void> noShow(String id, String? reason) async {
+    await _fake.latency(0.4);
+    _active = null;
+  }
+
+  @override
+  Future<ActiveMission> reportFailure(String id, String reason) async {
+    await _fake.latency(0.4);
+    final m = _require(id);
+    return _active = m.copyWith(stage: MissionStage.failed, canReturn: m.stage != MissionStage.atPickup);
+  }
+
+  @override
+  Future<ActiveMission> startReturn(String id) async {
+    await _fake.latency(0.4);
+    return _active = _require(id).copyWith(stage: MissionStage.returning);
+  }
+
+  @override
+  Future<void> completeReturn(String id) async {
+    await _fake.latency(0.4);
+    _active = null;
+  }
+
+  @override
+  Stream<DestinationChange> destinationChanges() => const Stream.empty();
+
+  @override
+  Future<ActiveMission> answerDestination(String id, bool accept, String? reason) async => _require(id);
+
+  @override
+  Stream<String?> hotZones() => const Stream.empty();
+
+  @override
+  Future<DirectEstimate> estimateDirect(DirectRideRequest r) async {
+    await _fake.latency(0.5);
+    return const DirectEstimate(price: 1500, minimumFare: 500, distanceKm: 6.2, durationMin: 18, surgeMultiplier: 1);
+  }
+
+  @override
+  Future<ActiveMission> startDirect(DirectRideRequest r) async {
+    await _fake.latency(0.6);
+    final offer = MissionOffer(
+      id: 'D${++_seq}',
+      kind: MissionKind.ride,
+      pickup: const Stop(label: 'Ma position', address: ''),
+      dropoff: Stop(label: r.dropoffLabel, address: ''),
+      distanceToPickupKm: 0,
+      tripKm: 6.2,
+      tripMinutes: 2,
+      clientPrice: 1500,
+      netEarning: 1275,
+      payment: PaymentMode.cash,
+      customerName: 'Client',
+      customerRating: 0,
+    );
+    return _active = ActiveMission(offer: offer, stage: MissionStage.atPickup, arrivedAt: DateTime.now());
+  }
 }
+

@@ -3,6 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wami_core/wami_core.dart';
 
 import 'app/router/app_router.dart';
+import 'shared/app_version.dart';
+import 'shared/contact.dart';
+import 'shared/push_service.dart';
 import 'app/session/session_cubit.dart';
 import 'features/missions/presentation/bloc/missions_bloc.dart';
 
@@ -28,6 +31,31 @@ class _WamiProAppState extends State<WamiProApp> {
     sl<AuthInterceptor>().onSessionExpired = _session.expire;
   }
 
+  /// Mise à jour proposée, ou imposée quand le serveur l'exige (écran non fermable).
+  Future<void> _checkVersion() async {
+    final v = await sl<AppVersionService>().check();
+    final ctx = _router.config.routerDelegate.navigatorKey.currentContext;
+    if (v == null || !v.updateAvailable || ctx == null || !ctx.mounted) return;
+    await showDialog<void>(
+      context: ctx,
+      barrierDismissible: !v.forceUpdate,
+      builder: (context) => PopScope(
+        canPop: !v.forceUpdate,
+        child: AlertDialog(
+          title: Text(v.forceUpdate ? 'Mise à jour obligatoire' : 'Nouvelle version disponible'),
+          content: Text('Version ${v.latest}${v.notes.isEmpty ? '' : '\n\n${v.notes}'}'),
+          actions: [
+            if (!v.forceUpdate) TextButton(onPressed: () => Navigator.pop(context), child: const Text('Plus tard')),
+            FilledButton(
+              onPressed: () => Contact.openUrl(context, v.url),
+              child: const Text('Mettre à jour'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _session.close();
@@ -46,7 +74,13 @@ class _WamiProAppState extends State<WamiProApp> {
         listenWhen: (a, b) => a.phase != b.phase,
         listener: (context, s) {
           final missions = context.read<MissionsBloc>();
-          if (s.phase == SessionPhase.active) missions.add(const MissionsStarted());
+          if (s.phase == SessionPhase.active) {
+            missions.add(const MissionsStarted());
+            if (!sl<AppConfig>().useFakeBackend) {
+              sl<PushService>().register();
+              _checkVersion();
+            }
+          }
           if (s.phase == SessionPhase.signedOut) missions.add(const MissionsReset());
         },
         child: MaterialApp.router(

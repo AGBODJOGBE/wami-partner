@@ -123,6 +123,14 @@ class PartnerWalletPage extends StatelessWidget {
                           Text('− ${Fmt.fcfa(w.cashCommissionDue)}', style: const TextStyle(fontWeight: FontWeight.w700)),
                         ]),
                       ),
+                    GlassCard(
+                      child: ListRow(
+                        title: 'Envoyer de l’argent',
+                        subtitle: 'Vers un autre portefeuille WAMI',
+                        icon: Icons.send_rounded,
+                        onTap: () => context.push(ProRoutes.transfer),
+                      ),
+                    ),
                     const SectionLabel('Retirer vers'),
                     GlassCard(child: ListRow(title: w.payoutMethod, icon: Icons.phone_android_rounded, trailing: const WamiTag('Par défaut', tint: WamiColors.success))),
                     const SectionLabel('Derniers mouvements'),
@@ -201,6 +209,73 @@ class PerformancePage extends StatelessWidget {
                     ]),
                     if (p.lastReview != null) GlassCard(child: Text('« ${p.lastReview} »')),
                   ],
+                ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Envoyer de l'argent ─────────────────────────────────────────────────────
+
+class TransferPage extends StatefulWidget {
+  const TransferPage({super.key});
+
+  @override
+  State<TransferPage> createState() => _TransferPageState();
+}
+
+class _TransferPageState extends State<TransferPage> {
+  final _phone = TextEditingController();
+  final _amount = TextEditingController();
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _phone.dispose();
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return BlocConsumer<TransferCubit, DataState<TransferReceipt>>(
+      listenWhen: (a, b) => b.failure != null && a.failure != b.failure,
+      listener: (context, s) => showWamiMessage(context, s.failure!.message),
+      builder: (context, s) {
+        final r = s.data;
+        return WamiScreen(
+          title: 'Envoyer de l’argent',
+          glow: ProAccent.glow,
+          body: r != null && s.done
+              ? Gap(children: [
+                  Text('Envoi effectué', style: t.titleMedium),
+                  GlassGroup(children: [
+                    InfoRow('Envoyé', Fmt.fcfa(r.sent)),
+                    InfoRow('Frais', Fmt.fcfa(r.fee)),
+                    InfoRow('Reçu par le destinataire', Fmt.fcfa(r.received), strong: true),
+                    InfoRow('Solde restant', Fmt.fcfa(r.remaining)),
+                  ]),
+                ])
+              : Gap(children: [
+                  WamiTextField(hint: 'Numéro du destinataire', prefixText: '+229 ', controller: _phone, keyboardType: TextInputType.phone),
+                  WamiTextField(hint: 'Montant (FCFA)', controller: _amount, keyboardType: TextInputType.number),
+                  WamiTextField(hint: 'Note (facultatif)', controller: _note),
+                  Text('Seul votre solde principal peut être envoyé, pas le bonus. Des frais s’appliquent.', style: t.bodySmall?.copyWith(fontSize: 11.5)),
+                ]),
+          bottom: r != null && s.done
+              ? WamiPrimaryButton(label: 'Terminé', onPressed: () => Navigator.of(context).maybePop())
+              : WamiPrimaryButton(
+                  label: 'Envoyer',
+                  icon: Icons.send_rounded,
+                  loading: s.busy,
+                  onPressed: () => context.read<TransferCubit>().send(
+                        phone: _phone.text,
+                        amount: int.tryParse(_amount.text.trim()) ?? 0,
+                        note: _note.text,
+                      ),
                 ),
         );
       },

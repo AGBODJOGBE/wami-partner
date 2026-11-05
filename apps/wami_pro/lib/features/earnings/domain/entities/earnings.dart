@@ -118,3 +118,17 @@ class Performance extends Equatable {
   List<Object?> get props =>
       [rating, acceptanceRate, cancellationRate, goalTarget, goalDone, goalBonus, level, nextLevelHint, tags, lastReview];
 }
+
+/// Résultat d'un transfert entre portefeuilles.
+class TransferReceipt extends Equatable {
+  const TransferReceipt({required this.sent, required this.fee, required this.received, required this.remaining});
+  final int sent;
+  final int fee;
+  final int received;
+
+  /// Solde principal restant après l'envoi.
+  final int remaining;
+
+  @override
+  List<Object?> get props => [sent, fee, received, remaining];
+}

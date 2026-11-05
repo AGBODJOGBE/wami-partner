@@ -100,6 +100,12 @@ class MissionsHomePage extends StatelessWidget {
                             if (day.online)
                               Text('Les demandes proches de vous vont arriver ici.',
                                   textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
+                            if (day.online && s.active == null)
+                              TextButton.icon(
+                                onPressed: () => context.push(ProRoutes.directRide),
+                                icon: const Icon(Icons.hail_rounded),
+                                label: const Text('Prendre un client dans la rue'),
+                              ),
                             KpiRow(children: [
                               KpiTile(value: '${day.missions}', label: 'missions'),
                               KpiTile(value: day.rating.toStringAsFixed(1).replaceAll('.', ','), label: 'note', color: WamiColors.star),
