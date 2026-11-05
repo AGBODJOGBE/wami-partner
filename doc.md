@@ -188,3 +188,152 @@ Un chauffeur non approuvé se connecte et ne découvre le blocage qu'au passage 
 3. 3.1 · 3.2 · 3.3 (le plus gros gain pour l'app)
 4. 3.4 · 3.5 · 3.8
 5. 4.x et 5 (cohérence et documentation)
+
+---
+
+# Partie B — Routes à développer, vue par vue
+
+Chaque ligne indique ce que **l'écran de l'app fait aujourd'hui** (souvent un contournement) et la **route à développer ou corriger** pour le remplacer. Les corps et réponses sont des **propositions** : adaptez-les, mais dites-moi la forme finale pour que je mette l'app à jour.
+
+Priorité : **P1** bloque ou fausse l'app · **P2** améliore nettement · **P3** confort.
+
+## B1. Inscription, connexion, validation du dossier
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | L'app déduit « dossier envoyé / vérifié / véhicule contrôlé » en lisant tous les documents et le véhicule | `GET /api/drivers/me/onboarding` → `{isApproved, status, canGoOnline, blockers:[{code,message}], documents:[{type,status,rejectionReason,expiresAt}], vehicle:{id,status,isVerified}}` |
+| P1 | Motif de refus d'un document (l'app affiche un texte générique) | Inclure `rejectionReason` dans `GET /api/documents/my-documents` |
+| P1 | Profil sans `isApproved`, `driverType`, `profilePhotoUrl` | Les ajouter à `GET /api/drivers/profile` |
+| P2 | Déconnexion : l'app efface seulement le jeton localement | `POST /api/drivers/logout` : met le jeton en liste noire, ferme la session, efface le jeton FCM |
+| P2 | Étape « Soumettre mon dossier » (l'app ne fait rien) | `POST /api/drivers/me/submit-review` (passe le dossier en revue, notifie l'admin) — facultatif |
+| P3 | Étape « Formation en ligne » (l'app la considère faite) | `GET /api/drivers/me/training` + `POST /api/drivers/me/training/complete` — ou retirer l'étape |
+| P3 | Jeton de 365 jours sans renouvellement | `POST /api/drivers/token/refresh` |
+| P3 | Cadence du battement de présence non documentée | Documenter : expire à 90 s, l'app envoie toutes les 30 s |
+
+## B2. Accueil Missions (en ligne, propositions)
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Refuser une proposition de course (401 permanent) | Corriger `PATCH /api/driver/rides/:id/reject` (voir 2.1) |
+| P1 | Refuser une proposition de livraison (n'existe pas) | `PATCH /api/driver/delivery/:id/reject` `{reason?}` |
+| P1 | Passage en ligne refusé en 500 | Corriger (voir 2.2) : 403 avec `code` stable |
+| P2 | Proposition de course : nom et note du client, coordonnées de destination | Enrichir `ride:new_request` : `passenger:{firstName,rating}`, `dropoff:{latitude,longitude,address}` |
+| P2 | Proposition de livraison : taille du colis, fragile, paiement | Enrichir `delivery_b2c:new_request` : `parcel:{type,fragile}`, `cashToCollect` si contre-remboursement |
+| P2 | L'app suppose 30 s pour répondre | Envoyer `expiresInSeconds` dans les deux événements de proposition |
+| P2 | L'app ne sait pas qu'une offre a expiré | Événement `ride:request_expired` / `delivery_b2c:request_expired` `{rideId\|orderId}` |
+| P2 | Suspension ou mise hors ligne forcée inconnues | Événements `driver:suspended` `{reason}` et `driver:forced_offline` `{reason}` |
+| P3 | Reprise des offres après coupure | `GET /api/driver/offers/pending` (course + livraison) |
+| P3 | Zones de forte demande : l'app affiche « à 1,2 km » | Ajouter `label` (quartier) à chaque cellule de `driver:density:update` |
+
+## B3. Mission en cours (course)
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Règles d'attente et de pause : l'app utilise des valeurs par défaut (2 min gratuites, 50 FCFA/min, 15 % de commission) | `GET /api/driver/fare-policy` → `{freeWaitingSeconds, waitingRatePerMinute, pauseBilled, pauseRatePerMinute, commissionRate, noShowCancelSeconds}` |
+| P2 | Navigation vers départ et destination | Coordonnées de départ et d'arrivée dans `GET /api/driver/rides/:id` et dans la réponse d'`accept` |
+| P2 | Bouton **Urgence** (non branché) | `POST /api/driver/rides/:id/sos` `{latitude,longitude}` : alerte le support et l'admin |
+| P2 | Appel masqué (l'app appelle le numéro réel) | `POST /api/driver/rides/:id/call-session` → numéro relais temporaire — facultatif |
+| P2 | Temps réel du client absent | Écouter `ride:no_show_ready` est prévu ; documenter le payload dans le swagger |
+| P3 | Fil de chat | Renvoyer `chatThreadId` dans `GET /api/driver/rides/:id` et dans la réponse d'`accept` (l'app le déduit : `ride:{id}`) |
+| P3 | `accept` ignore la position du chauffeur | Accepter `driverLat/driverLng` (documentés mais ignorés) pour un ETA exact |
+
+## B4. Livraison
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | `GET /api/driver/delivery` renvoie tout, sans filtre | Ajouter `?status=active\|history&page=&limit=` et vérifier que `data` est un tableau |
+| P2 | Encaissement au destinataire (espèces ou Mobile Money) | Autoriser `MOBILE_MONEY` et le contre-remboursement (`cashToCollect`) en B2C, ou confirmer que c'est hors périmètre |
+| P2 | Livraison d'un autre chauffeur → 500 | Renvoyer 403 typé (voir 4.4) |
+| P2 | Motif d'échec non validé | Rendre `reason` obligatoire (min. 3 caractères) sur `pickup-failure` et `delivery-failure` |
+| P2 | Après `PICKUP_FAILED`, aucune reprise possible | Route `PATCH …/retry-pickup` ou documenter qu'on annule |
+| P3 | Repas (restaurants) : l'app a un type « repas » | Aucun module côté chauffeur : confirmer s'il est prévu |
+
+## B5. Gains et portefeuille
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Gains par période (l'app recalcule depuis 10 pages de transactions) | `GET /api/drivers/earnings?period=day\|week\|month` → `{rangeLabel,total,previousTotal,bars:[{label,amount}],lines:[{label,amount}]}` |
+| P1 | Dette de commission sur les espèces (solde négatif) | `GET /api/drivers/commission-debt` → `{amount, since, rides:[…]}` |
+| P2 | Liste de « mes retraits » (statut, motif d'échec) | `GET /api/wallets/:id/withdrawals?page=` |
+| P2 | Minimum, frais et délai de retrait (l'app code 1 000 FCFA en dur) | `GET /api/wallets/config` → `{minWithdrawMobileMoney, minWithdrawBank, withdrawFee, transferFee, minTransfer, p2pEnabled}` |
+| P2 | Vérification de solde avant transfert | Corriger `GET /balance/check` : comparer `mainBalance` pour un wallet EARNINGS |
+| P3 | Pourboires (ligne « Pourboires » dans la maquette) | Type de transaction `TIP` côté chauffeur — ou retirer la ligne |
+| P3 | Plafonds de pagination des transactions | Documenter `limit` maximum |
+
+## B6. Performance
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P2 | Note, acceptation, annulation, niveau, objectif | `GET /api/drivers/performance` → `{rating, acceptanceRate, cancellationRate, level, nextLevelHint, goal:{target,done,bonus}}` (aujourd'hui : `stats` + bonus d'activité) |
+| P3 | « Ce que disent les clients » (tags) et dernier avis | Ajouter `tags:{label:count}` et `lastReview` (aujourd'hui vides) |
+| P3 | Unité des taux incohérente (0,92 ou 92) | Toujours une fraction 0–1 |
+
+## B7. Compte, profil, préférences
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Préférences de missions (livraisons, espèces, courses longues) : le serveur n'en a pas, elles restent locales et **n'influencent pas la répartition** | `GET/PUT /api/drivers/preferences` `{acceptDeliveries, acceptCash, longTrips}` pris en compte par le matching |
+| P2 | Modifier le profil en un seul appel | `PATCH /api/drivers/profile` (nom, adresse, genre, photo) au lieu de routes `/api/users/:userId/*` |
+| P2 | Photo de profil | Réutiliser `POST /api/documents/upload` (`PROFILE_PHOTO`) et renvoyer `profilePhotoUrl` dans le profil |
+| P2 | Suppression de compte | Ajouter les gardes (course active, solde, dette) — voir 1.4 |
+| P3 | Ligne « Assistance partenaires » | `GET /api/app-config/support` → `{phone, whatsapp, email, hours}` |
+
+## B8. Véhicules
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P2 | Demande de catégorie supérieure | Enregistrer la demande + notifier l'admin ; ajouter `GET /api/vehicles/:id/upgrade-requests` (statut) |
+| P2 | Catégorie vérifiée dans la liste | Ajouter `verifiedCategory` à `my-vehicles` |
+| P3 | Changement de véhicule actif | Documenter les erreurs en 400 (famille B) ou passer en famille A |
+
+## B9. Historique
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Liste sans pagination ni filtre | `GET /api/drivers/rides?status=&from=&to=&page=&limit=` → `{rides,total,page,totalPages}` |
+| P2 | Détail d'une course (reçu) | `GET /api/drivers/rides/:id` ou réutiliser `GET /api/driver/rides/:id` pour les courses terminées |
+| P3 | Détail d'une livraison | Déjà `GET /api/driver/delivery/:id` ; ajouter les photos signées |
+
+## B10. Trajets interurbains et quotidiens
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Lister **mes** trajets (l'app les retient en local) | `GET /api/driver/offers?status=` et `GET /api/driver/daily-routes?status=` |
+| P2 | Détail et réservations d'un trajet | `GET /api/driver/offers/:id` → réservations confirmées (nom, places) |
+| P2 | Identifier le passager d'un trajet quotidien | `GET /api/driver/passengers/lookup?phone=` → `{passengerId,name}` (aujourd'hui l'app demande un identifiant brut) |
+| P2 | Motif par défaut de l'annulation d'un trajet quotidien | Corriger (voir 2.4) |
+
+## B11. Adresses et cartes (course directe, trajets)
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Choisir une destination (aujourd'hui : liste de 25 lieux approximatifs) | `GET /api/geo/search?q=&lat=&lng=` → `[{label,city,latitude,longitude}]` et `GET /api/geo/reverse?lat=&lng=` — ou me dire quel service externe utiliser |
+| P3 | Itinéraire (la carte est un décor) | `GET /api/geo/route?from=&to=` (OSRM est déjà dans la stack) |
+
+## B12. Notifications et push
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | Faille IDOR | Voir 1.1 |
+| P2 | Tout marquer comme lu | `PATCH /api/notifications/read-all` |
+| P2 | Pastille « non lues » | `GET /api/notifications/unread-count` |
+| P2 | Ouvrir le bon écran depuis une push | Standardiser `data` : `{type, entityId, screen}` (types : offre, rappel de course programmée, retrait, document expiré, contrat) |
+| P3 | Jeton FCM à l'effacement | Déjà `PATCH /fcm-token` avec `null` ; ajouter la réponse au format famille A |
+
+## B13. Parrainage
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P1 | `apply` échoue pour un chauffeur | Corriger (voir 2.3) |
+| P3 | Lien ou message de partage | `GET /api/drivers/referrals/share` → texte et lien prêts à partager |
+
+## B14. Contrat de véhicule, bonus
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P3 | Pas de contrat → l'app interprète une erreur 4xx comme « aucun contrat » | Renvoyer `200 {data:null}` plutôt qu'une erreur |
+| P3 | `vehicleCategory` de `bonus/activity/progress` | Documenter s'il est facultatif (l'app ne l'envoie pas) |
+
+## B15. Chat
+| P | Besoin de l'écran | Route à développer / corriger |
+|---|---|---|
+| P3 | Historique avant ouverture du socket, ou indicateur de messages non lus | `GET /api/driver/rides/:id/chat/unread` — facultatif (le temps réel suffit) |
+
+---
+
+## Décisions à prendre avant de coder
+
+1. **Formes d'erreur** : une seule (famille A) — c'est la décision qui facilite le plus l'app.
+2. **Préfixe** : garder `/api/driver` et `/api/drivers`, ou unifier ? (L'app suit le choix.)
+3. **Service de géocodage** : externe (Google, Nominatim, Mapbox) ou route `/api/geo/*` ?
+4. **Repas / restaurants** côté chauffeur : prévus ou retirés de l'app ?
+5. **Mobile Money en livraison** : prévu ou non ?
+6. **Pourboires** : prévus ou non ?
+
+Quand une route est livrée, dites-moi sa forme finale : je retire le contournement correspondant dans l'app.
